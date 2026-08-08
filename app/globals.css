@@ -1,0 +1,48 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+::selection {
+  background-color: #f5b94255;
+}
+
+body {
+  background-image:
+    radial-gradient(circle at 12% -10%, rgba(79, 224, 216, 0.06), transparent 40%),
+    radial-gradient(circle at 88% 0%, rgba(255, 143, 199, 0.06), transparent 40%);
+}
+
+.holo-text {
+  background-image: linear-gradient(115deg, #4fe0d8 0%, #b98bff 45%, #ff8fc7 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+/* Borde tipo "ticket" perforado para el badge de precio */
+.ticket-notch::before,
+.ticket-notch::after {
+  content: "";
+  position: absolute;
+  width: 10px;
+  height: 10px;
+  border-radius: 9999px;
+  background: #101114;
+  top: 50%;
+  transform: translateY(-50%);
+}
+.ticket-notch::before {
+  left: -5px;
+}
+.ticket-notch::after {
+  right: -5px;
+}
+
+.scrollbar-thin::-webkit-scrollbar {
+  height: 6px;
+  width: 6px;
+}
+.scrollbar-thin::-webkit-scrollbar-thumb {
+  background: #2c2f38;
+  border-radius: 9999px;
+}
