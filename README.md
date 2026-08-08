@@ -142,6 +142,23 @@ lib/
   types.ts, currency.ts, rarity.ts     → tipos de la API, conversión de moneda, color por rareza
 ```
 
+## Novedades v2.7
+
+- **Lista de compra** (nueva página): junta en un solo lugar todo lo que te falta comprar —
+  cartas faltantes de todos tus mazos + tu lista de deseos — agrupado por carta, con el costo
+  total y de dónde viene cada una (qué mazo, o "lista de deseos"). Con "Ya la compré" se agrega
+  de una vez a tu colección y se asigna sola a los mazos que la pedían (y sale de la lista de
+  deseos si estaba ahí).
+
+## Novedades v2.6
+
+- **Lista de deseos** (nueva página, "Deseos" en el navbar): cartas que quieres conseguir, separadas
+  de tus mazos — no necesitan modo trabajo ni pertenecer a ningún mazo. Cada carta tiene prioridad
+  (alta/media/baja), precio estimado, link directo a comprar en TCGPlayer, y un botón "Ya la tengo"
+  que la mueve directo a tu colección. Se ve el costo total estimado de toda la lista. También
+  puedes agregar una carta a deseos desde su ficha de detalle (botón "♡ Agregar a deseos"), sin
+  importar dónde la estés viendo.
+
 ## Novedades v2.5.2
 
 - **El validador de legalidad ahora reconoce reimpresiones de Trainer/Energy**: si una carta como

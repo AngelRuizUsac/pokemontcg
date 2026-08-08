@@ -522,3 +522,55 @@ export function getDeckMissingValueUsd(deckId: string): number {
     .filter((w) => !w.isGeneric)
     .reduce((sum, w) => sum + (w.priceUsd ?? 0) * w.quantity, 0);
 }
+
+// ---------------------------------------------------------------------------
+// Lista de deseos (independiente de binders/mazos — cartas que quieres
+// conseguir, sin importar para qué las vayas a usar)
+// ---------------------------------------------------------------------------
+
+export type WishlistPriority = "low" | "medium" | "high";
+
+export interface WishlistItem {
+  id: string;
+  cardId: string;
+  cardName: string;
+  category: CardCategory;
+  setId: string;
+  setName: string;
+  number: string;
+  imageUrl: string;
+  priceUsd: number | null;
+  priority: WishlistPriority;
+  notes: string | null;
+  createdAt: string;
+}
+
+const WISHLIST_KEY = "pokedex-tcg:wishlist";
+
+export function getWishlist(): WishlistItem[] {
+  return readJson<WishlistItem[]>(WISHLIST_KEY, []);
+}
+
+function saveWishlist(items: WishlistItem[]) {
+  writeJson(WISHLIST_KEY, items);
+}
+
+export function addWishlistItem(data: Omit<WishlistItem, "id" | "createdAt">): WishlistItem {
+  const existing = getWishlist().find((i) => i.cardId === data.cardId);
+  if (existing) return existing; // ya está en la lista, no se duplica
+  const item: WishlistItem = { ...data, id: generateId(), createdAt: new Date().toISOString() };
+  saveWishlist([item, ...getWishlist()]);
+  return item;
+}
+
+export function updateWishlistItem(id: string, patch: Partial<WishlistItem>) {
+  saveWishlist(getWishlist().map((i) => (i.id === id ? { ...i, ...patch } : i)));
+}
+
+export function removeWishlistItem(id: string) {
+  saveWishlist(getWishlist().filter((i) => i.id !== id));
+}
+
+export function isInWishlist(cardId: string): boolean {
+  return getWishlist().some((i) => i.cardId === cardId);
+}

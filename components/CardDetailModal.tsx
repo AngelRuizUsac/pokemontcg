@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { getCardById, cardImageUrl, buildTcgPlayerSearchUrl } from "@/lib/tcgdex";
 import { resolveMarketPriceUsd } from "@/lib/types";
 import type { PokemonCard } from "@/lib/types";
+import { addWishlistItem, isInWishlist } from "@/lib/storage";
 import PriceTicket from "./PriceTicket";
 import CardImage from "./CardImage";
 import { DEFAULT_EXCHANGE_RATE } from "@/lib/currency";
@@ -20,6 +21,11 @@ export default function CardDetailModal({
   const [card, setCard] = useState<PokemonCard | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [wishlisted, setWishlisted] = useState(false);
+
+  useEffect(() => {
+    setWishlisted(isInWishlist(cardId));
+  }, [cardId]);
 
   useEffect(() => {
     let cancelled = false;
@@ -158,12 +164,38 @@ export default function CardDetailModal({
                 <p className="text-ink-400 text-[11px] mt-3">Ilustración: {card.illustrator}</p>
               )}
 
-              <div className="mt-4">
+              <div className="mt-4 flex items-center gap-2 flex-wrap">
                 <PriceTicket
                   priceUsd={resolveMarketPriceUsd(card)}
                   exchangeRate={exchangeRate}
                   tcgPlayerUrl={buildTcgPlayerSearchUrl(card.name, card.set.name)}
                 />
+                <button
+                  onClick={() => {
+                    if (!card) return;
+                    addWishlistItem({
+                      cardId: card.id,
+                      cardName: card.name,
+                      category: card.category,
+                      setId: card.set.id,
+                      setName: card.set.name,
+                      number: card.localId,
+                      imageUrl: cardImageUrl(card.image, "low", "webp"),
+                      priceUsd: resolveMarketPriceUsd(card),
+                      priority: "medium",
+                      notes: null,
+                    });
+                    setWishlisted(true);
+                  }}
+                  disabled={wishlisted}
+                  className={`text-xs px-3 py-1.5 rounded-full border ${
+                    wishlisted
+                      ? "bg-holo-pink/10 border-holo-pink/30 text-holo-pink"
+                      : "bg-ink-900 border-ink-700 text-ink-100 hover:border-holo-pink/40"
+                  }`}
+                >
+                  {wishlisted ? "♥ En tu lista de deseos" : "♡ Agregar a deseos"}
+                </button>
               </div>
             </div>
           </div>
