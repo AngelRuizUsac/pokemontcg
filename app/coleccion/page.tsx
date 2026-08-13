@@ -6,6 +6,7 @@ import {
   getContainer,
   updateContainer,
   removeContainer,
+  releaseContainerAllocations,
   getAllocationsForContainer,
   getWorkSlotsForDeck,
   getCollectionEntry,
@@ -18,8 +19,9 @@ import {
   refreshWorkSlots,
   getSettings,
   isEntryBulk,
+  entryUnitValueUsd,
 } from "@/lib/storage";
-import type { Container, Allocation, WorkSlot, CollectionEntry } from "@/lib/storage";
+import type { Container, Allocation, WorkSlot, CollectionEntry, AppSettings } from "@/lib/storage";
 import { deckGroupKey } from "@/lib/reprints";
 import { formatGtq, formatUsd, usdToGtq, DEFAULT_EXCHANGE_RATE } from "@/lib/currency";
 import { CARD_TYPE_OPTIONS, matchesCardTypeFilter } from "@/lib/cardTypeFilter";
@@ -32,6 +34,7 @@ import ReplaceWorkSlotDialog from "@/components/ReplaceWorkSlotDialog";
 import CardImage from "@/components/CardImage";
 import DeckViewGrid from "@/components/DeckViewGrid";
 import DeckLegalityPanel from "@/components/DeckLegalityPanel";
+import DeckCompositionPanel from "@/components/DeckCompositionPanel";
 import CardDetailModal from "@/components/CardDetailModal";
 import { checkDeckLegality, refineRegulationViolations } from "@/lib/deckLegality";
 import type { RegulationViolation } from "@/lib/deckLegality";
@@ -140,10 +143,11 @@ export default function ColeccionDetailPage() {
   const isDeck = container.type === "deck";
   const missingUsd = isDeck ? getDeckMissingValueUsd(container.id) : 0;
   const fullSettings = getSettings();
-  // Las cartas marcadas/clasificadas como bulk no suman al valor del binder/mazo.
+  // Las cartas marcadas/clasificadas como bulk no suman al valor del binder/mazo,
+  // y el valor de cada una se ajusta según su condición.
   const ownedUsd = rows
     .filter((r) => !isEntryBulk(r.entry, fullSettings))
-    .reduce((sum, r) => sum + (r.entry.priceUsd ?? 0) * r.alloc.quantity, 0);
+    .reduce((sum, r) => sum + entryUnitValueUsd(r.entry, fullSettings) * r.alloc.quantity, 0);
   const legality = isDeck ? checkDeckLegality(rows, workSlots, fullSettings) : null;
   const displayedLegality =
     legality && refinedViolations
@@ -194,6 +198,25 @@ export default function ColeccionDetailPage() {
     if (!confirm(`¿Eliminar "${container!.name}"? Las cartas volverán a estar disponibles sin asignar.`)) return;
     removeContainer(container!.id);
     window.location.href = "/colecciones/";
+  }
+
+  function releaseCards() {
+    if (rows.length === 0) {
+      alert("Este binder/mazo no tiene cartas asignadas.");
+      return;
+    }
+    if (
+      !confirm(
+        `¿Liberar las ${rows.reduce((s, r) => s + r.alloc.quantity, 0)} copias asignadas a "${
+          container!.name
+        }"? Volverán a estar disponibles sin asignar — "${container!.name}" seguirá existiendo, solo quedará vacío.`
+      )
+    )
+      return;
+    const { released } = releaseContainerAllocations(container!.id);
+    setRefreshMsg(`Se liberaron ${released} copia(s) — ya están disponibles sin asignar.`);
+    load();
+    setTimeout(() => setRefreshMsg(null), 4000);
   }
 
   function adjustAllocQty(row: Row, delta: number) {
@@ -328,6 +351,14 @@ export default function ColeccionDetailPage() {
                 ↻ Actualizar
               </button>
             )}
+            {isDeck && (
+              <Link
+                href={`/imprimir/?id=${container.id}`}
+                className="text-xs px-3 py-1.5 rounded-full bg-ink-700 text-ink-100 hover:bg-ink-600"
+              >
+                Imprimir
+              </Link>
+            )}
           </div>
           <div className="flex items-center gap-2">
             <div className="flex bg-ink-900 rounded-full p-1">
@@ -352,6 +383,13 @@ export default function ColeccionDetailPage() {
           <div className="flex gap-2">
             <button onClick={share} className="text-xs text-ink-400 hover:text-ink-50">
               Compartir (vista)
+            </button>
+            <button
+              onClick={releaseCards}
+              className="text-xs text-holo-cyan hover:underline"
+              title="Quita todas las cartas asignadas sin borrar este binder/mazo"
+            >
+              Liberar cartas
             </button>
             <button onClick={deleteContainer} className="text-xs text-danger/80 hover:text-danger">
               Eliminar
@@ -396,6 +434,8 @@ export default function ColeccionDetailPage() {
         <DeckLegalityPanel result={displayedLegality!} checkingReprints={checkingReprints} />
       )}
 
+      {isDeck && <DeckCompositionPanel rows={rows} workSlots={workSlots} />}
+
       {viewMode === "view" && (
         <div className="mt-6">
           <DeckViewGrid
@@ -403,6 +443,7 @@ export default function ColeccionDetailPage() {
             energySlots={energySlots}
             missingSlots={missingSlots}
             exchangeRate={exchangeRate}
+            settings={fullSettings}
             isBinder={!isDeck}
           />
         </div>
@@ -440,6 +481,7 @@ export default function ColeccionDetailPage() {
                   key={g.rows[0].alloc.id}
                   row={g.rows[0]}
                   exchangeRate={exchangeRate}
+                  settings={fullSettings}
                   onAdjust={(d) => adjustAllocQty(g.rows[0], d)}
                   onMove={() =>
                     setMoveTarget({
@@ -468,6 +510,7 @@ export default function ColeccionDetailPage() {
                         key={row.alloc.id}
                         row={row}
                         exchangeRate={exchangeRate}
+                        settings={fullSettings}
                         onAdjust={(d) => adjustAllocQty(row, d)}
                         onMove={() =>
                           setMoveTarget({
@@ -519,6 +562,7 @@ export default function ColeccionDetailPage() {
                   key={row.alloc.id}
                   row={row}
                   exchangeRate={exchangeRate}
+                  settings={fullSettings}
                   onAdjust={(d) => adjustAllocQty(row, d)}
                   onMove={() =>
                     setMoveTarget({
@@ -630,12 +674,14 @@ export default function ColeccionDetailPage() {
 function AllocationRow({
   row,
   exchangeRate,
+  settings,
   onAdjust,
   onMove,
   onRemove,
 }: {
   row: Row;
   exchangeRate: number;
+  settings: AppSettings;
   onAdjust: (delta: number) => void;
   onMove: () => void;
   onRemove: () => void;
@@ -644,7 +690,7 @@ function AllocationRow({
   const [showDetail, setShowDetail] = useState(false);
   const priceLine =
     entry.priceUsd != null
-      ? `${formatGtq(usdToGtq(entry.priceUsd * alloc.quantity, exchangeRate))}`
+      ? `${formatGtq(usdToGtq(entryUnitValueUsd(entry, settings) * alloc.quantity, exchangeRate))}`
       : null;
 
   return (

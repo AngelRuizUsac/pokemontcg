@@ -8,6 +8,8 @@ import {
   getContainers,
   getAllocations,
   getWorkSlots,
+  entryUnitValueUsd,
+  entryValueUsd,
 } from "./storage";
 import type {
   CollectionEntry,
@@ -82,4 +84,64 @@ export function restoreFullBackup(backup: FullBackup) {
     "pokedex-tcg:workslots",
     JSON.stringify(backup.workSlots)
   );
+}
+
+// Exporta toda la colección a un CSV, para abrirlo en Excel/Google Sheets u
+// otra herramienta fuera de la app.
+function csvEscape(value: string | number | null): string {
+  if (value == null) return "";
+  const s = String(value);
+  return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+}
+
+export function downloadCollectionCsv() {
+  const settings = getSettings();
+  const headers = [
+    "Nombre",
+    "Categoria",
+    "Set",
+    "Numero",
+    "Codigo de set",
+    "Rareza",
+    "Condicion",
+    "Idioma",
+    "Holo",
+    "Cantidad",
+    "Precio mercado USD (unidad)",
+    "Precio ajustado USD (unidad)",
+    "Valor total USD",
+    "Bulk",
+    "Notas",
+  ];
+
+  const rows = getCollection().map((e) =>
+    [
+      e.cardName,
+      e.category,
+      e.setName,
+      e.number,
+      e.setAbbreviation ?? "",
+      e.rarity ?? "",
+      e.condition,
+      e.language,
+      e.isHolo ? "si" : "no",
+      e.quantity,
+      e.priceUsd != null ? e.priceUsd.toFixed(2) : "",
+      e.priceUsd != null ? entryUnitValueUsd(e, settings).toFixed(2) : "",
+      e.priceUsd != null ? entryValueUsd(e, settings).toFixed(2) : "",
+      e.markedBulk ? "si" : "no",
+      e.notes ?? "",
+    ]
+      .map(csvEscape)
+      .join(",")
+  );
+
+  const csv = [headers.join(","), ...rows].join("\n");
+  const blob = new Blob([`\uFEFF${csv}`], { type: "text/csv;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `pokedex-tcg-coleccion-${new Date().toISOString().slice(0, 10)}.csv`;
+  a.click();
+  URL.revokeObjectURL(url);
 }

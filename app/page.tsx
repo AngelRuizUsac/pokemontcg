@@ -3,10 +3,12 @@
 import { useEffect, useState, useCallback } from "react";
 import Link from "next/link";
 import CollectionCard from "@/components/CollectionCard";
-import { getCollection, getSettings, isEntryBulk } from "@/lib/storage";
+import { getCollection, getSettings, isEntryBulk, updateCollectionEntry, mergeDuplicateCollectionEntries, entryValueUsd } from "@/lib/storage";
 import type { CollectionEntry, AppSettings } from "@/lib/storage";
 import { DEFAULT_EXCHANGE_RATE, formatGtq, formatUsd, usdToGtq } from "@/lib/currency";
 import { CARD_TYPE_OPTIONS, matchesCardTypeFilter } from "@/lib/cardTypeFilter";
+import { getCardById } from "@/lib/tcgdex";
+import { resolveMarketPriceUsd } from "@/lib/types";
 
 const DEFAULT_SETTINGS: AppSettings = {
   exchangeRate: DEFAULT_EXCHANGE_RATE,
@@ -14,6 +16,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   bulkThresholdGtq: 5,
   standardMarkFrom: "",
   standardMarkTo: "",
+  conditionMultipliers: { NM: 1, LP: 0.85, MP: 0.7, HP: 0.5, DMG: 0.3 },
 };
 
 type SortOption = "name" | "price-desc" | "price-asc" | "quantity-desc";
@@ -25,13 +28,13 @@ const SORT_OPTIONS: { value: SortOption; label: string }[] = [
   { value: "quantity-desc", label: "Cantidad (mayor a menor)" },
 ];
 
-function sortEntries(entries: CollectionEntry[], sort: SortOption): CollectionEntry[] {
+function sortEntries(entries: CollectionEntry[], sort: SortOption, settings: AppSettings): CollectionEntry[] {
   const sorted = [...entries];
   switch (sort) {
     case "price-desc":
-      return sorted.sort((a, b) => (b.priceUsd ?? 0) * b.quantity - (a.priceUsd ?? 0) * a.quantity);
+      return sorted.sort((a, b) => entryValueUsd(b, settings) - entryValueUsd(a, settings));
     case "price-asc":
-      return sorted.sort((a, b) => (a.priceUsd ?? 0) * a.quantity - (b.priceUsd ?? 0) * b.quantity);
+      return sorted.sort((a, b) => entryValueUsd(a, settings) - entryValueUsd(b, settings));
     case "quantity-desc":
       return sorted.sort((a, b) => b.quantity - a.quantity);
     default:
@@ -47,6 +50,8 @@ export default function Home() {
   const [typeFilter, setTypeFilter] = useState("");
   const [showBulk, setShowBulk] = useState(true);
   const [sort, setSort] = useState<SortOption>("name");
+  const [busyAction, setBusyAction] = useState<"prices" | "merge" | null>(null);
+  const [actionMsg, setActionMsg] = useState<string | null>(null);
 
   const load = useCallback(() => {
     setEntries(getCollection());
@@ -58,6 +63,55 @@ export default function Home() {
     load();
   }, [load]);
 
+  async function updatePrices() {
+    setBusyAction("prices");
+    setActionMsg(null);
+    try {
+      const current = getCollection();
+      // agrupa por carta para no pedir el mismo precio varias veces si hay
+      // holo/normal, distintas condiciones, etc. de la misma impresión
+      const uniqueCardIds = Array.from(new Set(current.map((e) => e.cardId)));
+      const priceByCardId = new Map<string, number | null>();
+
+      await Promise.all(
+        uniqueCardIds.map(async (cardId) => {
+          try {
+            const card = await getCardById(cardId);
+            priceByCardId.set(cardId, resolveMarketPriceUsd(card));
+          } catch {
+            // si una carta falla, se deja su precio como estaba
+          }
+        })
+      );
+
+      let updated = 0;
+      const now = new Date().toISOString();
+      for (const entry of current) {
+        if (!priceByCardId.has(entry.cardId)) continue;
+        const priceUsd = priceByCardId.get(entry.cardId) ?? null;
+        updateCollectionEntry(entry.id, { priceUsd, priceUpdatedAt: now });
+        updated++;
+      }
+      setActionMsg(`Precios actualizados: ${updated} carta(s).`);
+      load();
+    } finally {
+      setBusyAction(null);
+    }
+  }
+
+  function mergeDuplicates() {
+    setBusyAction("merge");
+    setActionMsg(null);
+    const { merged } = mergeDuplicateCollectionEntries();
+    setActionMsg(
+      merged > 0
+        ? `Se unieron ${merged} entrada(s) repetida(s).`
+        : "No había entradas repetidas para unir."
+    );
+    load();
+    setBusyAction(null);
+  }
+
   const term = search.trim().toLowerCase();
   const visible = sortEntries(
     entries.filter((e) => {
@@ -66,14 +120,16 @@ export default function Home() {
       if (!showBulk && isEntryBulk(e, settings)) return false;
       return true;
     }),
-    sort
+    sort,
+    settings
   );
 
   const totalCards = entries.reduce((sum, e) => sum + e.quantity, 0);
-  // Las cartas marcadas/clasificadas como bulk no suman al valor total.
+  // Las cartas marcadas/clasificadas como bulk no suman al valor total, y el
+  // valor de cada una se ajusta según su condición.
   const totalUsd = entries
     .filter((e) => !isEntryBulk(e, settings))
-    .reduce((sum, e) => sum + (e.priceUsd ?? 0) * e.quantity, 0);
+    .reduce((sum, e) => sum + entryValueUsd(e, settings), 0);
   const bulkCount = entries.filter((e) => isEntryBulk(e, settings)).length;
 
   return (
@@ -99,8 +155,26 @@ export default function Home() {
           {bulkCount > 0 && (
             <p className="text-ink-400 text-[10px] mt-1">sin contar {bulkCount} bulk</p>
           )}
+          <div className="flex gap-2 mt-2">
+            <button
+              onClick={updatePrices}
+              disabled={busyAction !== null || entries.length === 0}
+              className="text-[11px] px-2.5 py-1 rounded-full bg-ink-700 text-ink-100 hover:bg-ink-600 disabled:opacity-50"
+            >
+              {busyAction === "prices" ? "Actualizando…" : "↻ Actualizar precios"}
+            </button>
+            <button
+              onClick={mergeDuplicates}
+              disabled={busyAction !== null || entries.length === 0}
+              className="text-[11px] px-2.5 py-1 rounded-full bg-ink-700 text-ink-100 hover:bg-ink-600 disabled:opacity-50"
+            >
+              {busyAction === "merge" ? "Uniendo…" : "Unir repetidas"}
+            </button>
+          </div>
         </div>
       </div>
+
+      {actionMsg && <p className="text-holo-cyan text-xs mt-3">{actionMsg}</p>}
 
       {!loaded && entries.length === 0 ? null : entries.length === 0 ? (
         <div className="mt-16 text-center">

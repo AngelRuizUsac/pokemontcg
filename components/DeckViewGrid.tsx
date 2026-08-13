@@ -1,7 +1,8 @@
 "use client";
 
 import { useState } from "react";
-import type { CollectionEntry, Allocation, WorkSlot } from "@/lib/storage";
+import type { CollectionEntry, Allocation, WorkSlot, AppSettings } from "@/lib/storage";
+import { entryUnitValueUsd } from "@/lib/storage";
 import { formatGtq, usdToGtq } from "@/lib/currency";
 import { buildTcgPlayerSearchUrl } from "@/lib/tcgdex";
 import CardImage from "./CardImage";
@@ -85,12 +86,14 @@ export default function DeckViewGrid({
   energySlots,
   missingSlots,
   exchangeRate,
+  settings,
   isBinder,
 }: {
   rows: Row[];
   energySlots: WorkSlot[];
   missingSlots: WorkSlot[];
   exchangeRate: number;
+  settings: AppSettings;
   isBinder: boolean;
 }) {
   const gridClass = "grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4";
@@ -119,7 +122,7 @@ export default function DeckViewGrid({
                   exchangeRate={exchangeRate}
                   priceLine={
                     r.entry.priceUsd != null
-                      ? formatGtq(usdToGtq(r.entry.priceUsd * r.alloc.quantity, exchangeRate))
+                      ? formatGtq(usdToGtq(entryUnitValueUsd(r.entry, settings) * r.alloc.quantity, exchangeRate))
                       : null
                   }
                 />

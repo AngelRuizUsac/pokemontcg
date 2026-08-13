@@ -142,6 +142,60 @@ lib/
   types.ts, currency.ts, rarity.ts     → tipos de la API, conversión de moneda, color por rareza
 ```
 
+## Novedades v2.11
+
+- **"Liberar cartas"** en cada binder/mazo: quita todas las cartas asignadas de golpe (vuelven a
+  estar disponibles sin asignar, listas para usarse en otro mazo) **sin borrar el binder/mazo** —
+  queda vacío pero sigue existiendo con su nombre, imagen y ajustes. Pensado para cuando no tienes
+  suficientes copias para armar dos mazos completos a la vez y necesitas reciclar las de uno viejo.
+
+## Novedades v2.10
+
+- **Precio ajustado por condición** (Ajustes → "Precio según condición"): define qué porcentaje del
+  precio de mercado vale una carta según su condición (NM, LP, MP, HP, DMG — por defecto 100%, 85%,
+  70%, 50%, 30%). El valor total de tu colección, de cada binder/mazo, las estadísticas, y el precio
+  que se ve en cada carta de Mi colección ya usan este ajuste — antes todo asumía copia perfecta sin
+  importar la condición que hubieras registrado.
+- **Exportar colección a CSV** (Ajustes): descarga toda tu colección en un archivo `.csv` para
+  abrirlo en Excel, Google Sheets, o donde quieras — incluye precio de mercado, precio ajustado por
+  condición, y valor total por carta.
+
+## Novedades v2.9
+
+- **Composición del mazo**: en la vista de construcción de cada mazo se ve un desglose visual —
+  Pokémon/Trainer/Energy, y dentro de Trainer por subtipo (Item/Supporter/Stadium/Tool) y de
+  Energy por subtipo (Basic/Special). Ayuda a balancear el mazo mientras lo armas.
+- **Hoja de práctica para imprimir**: botón "Imprimir" en cada mazo que abre una hoja lista para
+  imprimir con todas las cartas del mazo (imagen + cantidad), incluyendo las que aún te faltan
+  marcadas como "proxy" — para practicar en casa antes de comprarlas. No sirve para juego
+  organizado/torneos, es solo de referencia personal.
+
+## Novedades v2.8
+
+- **"↻ Actualizar precios"** en Mi colección: vuelve a consultar TCGdex para cada carta distinta de
+  tu colección y refresca el precio guardado (agrupa por carta para no pedir el mismo precio dos
+  veces si tienes la misma impresión en holo y normal, por ejemplo).
+- **"Unir repetidas"**: junta en una sola entrada las cartas que quedaron duplicadas de antes de
+  que existiera la agrupación automática (misma carta, condición, idioma y holo/normal) — suma las
+  cantidades y reasigna cualquier copia que ya estuviera en un binder o mazo, sin perder nada.
+
+## Novedades v2.7
+
+- **Lista de compra** (nueva página): junta en un solo lugar todo lo que te falta comprar —
+  cartas faltantes de todos tus mazos + tu lista de deseos — agrupado por carta, con el costo
+  total y de dónde viene cada una (qué mazo, o "lista de deseos"). Con "Ya la compré" se agrega
+  de una vez a tu colección y se asigna sola a los mazos que la pedían (y sale de la lista de
+  deseos si estaba ahí).
+
+## Novedades v2.6
+
+- **Lista de deseos** (nueva página, "Deseos" en el navbar): cartas que quieres conseguir, separadas
+  de tus mazos — no necesitan modo trabajo ni pertenecer a ningún mazo. Cada carta tiene prioridad
+  (alta/media/baja), precio estimado, link directo a comprar en TCGPlayer, y un botón "Ya la tengo"
+  que la mueve directo a tu colección. Se ve el costo total estimado de toda la lista. También
+  puedes agregar una carta a deseos desde su ficha de detalle (botón "♡ Agregar a deseos"), sin
+  importar dónde la estés viendo.
+
 ## Novedades v2.5.2
 
 - **El validador de legalidad ahora reconoce reimpresiones de Trainer/Energy**: si una carta como

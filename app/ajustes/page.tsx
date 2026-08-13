@@ -3,7 +3,15 @@
 import { useEffect, useState } from "react";
 import { getSettings, updateSettings } from "@/lib/storage";
 import { DEFAULT_EXCHANGE_RATE, formatGtq, usdToGtq } from "@/lib/currency";
-import { buildFullBackup, downloadJson, isFullBackup, restoreFullBackup } from "@/lib/exportImport";
+import { buildFullBackup, downloadJson, isFullBackup, restoreFullBackup, downloadCollectionCsv } from "@/lib/exportImport";
+
+const CONDITIONS: { value: string; label: string }[] = [
+  { value: "NM", label: "Casi nueva (NM)" },
+  { value: "LP", label: "Ligero desgaste (LP)" },
+  { value: "MP", label: "Desgaste moderado (MP)" },
+  { value: "HP", label: "Muy desgastada (HP)" },
+  { value: "DMG", label: "Dañada (DMG)" },
+];
 
 export default function AjustesPage() {
   const [rate, setRate] = useState(DEFAULT_EXCHANGE_RATE);
@@ -11,6 +19,13 @@ export default function AjustesPage() {
   const [bulkThreshold, setBulkThreshold] = useState(5);
   const [markFrom, setMarkFrom] = useState("");
   const [markTo, setMarkTo] = useState("");
+  const [conditionMultipliers, setConditionMultipliers] = useState<Record<string, number>>({
+    NM: 1,
+    LP: 0.85,
+    MP: 0.7,
+    HP: 0.5,
+    DMG: 0.3,
+  });
   const [saved, setSaved] = useState(false);
   const [restoreMsg, setRestoreMsg] = useState<string | null>(null);
 
@@ -21,6 +36,7 @@ export default function AjustesPage() {
     setBulkThreshold(s.bulkThresholdGtq);
     setMarkFrom(s.standardMarkFrom);
     setMarkTo(s.standardMarkTo);
+    setConditionMultipliers(s.conditionMultipliers);
   }, []);
 
   function save() {
@@ -30,6 +46,7 @@ export default function AjustesPage() {
       bulkThresholdGtq: bulkThreshold,
       standardMarkFrom: markFrom,
       standardMarkTo: markTo,
+      conditionMultipliers,
     });
     setSaved(true);
     setTimeout(() => setSaved(false), 2000);
@@ -148,6 +165,44 @@ export default function AjustesPage() {
       </div>
 
       <div>
+        <h2 className="font-display font-semibold text-lg">Precio según condición</h2>
+        <p className="text-ink-400 text-sm mt-1">
+          Qué porcentaje del precio de mercado vale una carta según su condición — así el valor de
+          tu colección refleja mejor tu inventario real, no solo copias perfectas.
+        </p>
+
+        <div className="mt-4 bg-ink-800 border border-ink-700 rounded-card p-5 flex flex-col gap-3">
+          {CONDITIONS.map((c) => (
+            <div key={c.value} className="flex items-center gap-3">
+              <label className="text-xs text-ink-400 w-40 shrink-0">{c.label}</label>
+              <input
+                type="number"
+                min={0}
+                max={100}
+                step="1"
+                value={Math.round((conditionMultipliers[c.value] ?? 1) * 100)}
+                onChange={(e) =>
+                  setConditionMultipliers((m) => ({
+                    ...m,
+                    [c.value]: Math.max(0, Math.min(100, Number(e.target.value))) / 100,
+                  }))
+                }
+                className="w-20 bg-ink-900 border border-ink-700 rounded px-2 py-1.5 text-ink-50 font-mono text-sm"
+              />
+              <span className="text-ink-400 text-xs">%</span>
+            </div>
+          ))}
+
+          <button
+            onClick={save}
+            className="mt-1 px-4 py-2.5 rounded-full bg-gold text-ink-900 text-sm font-medium hover:bg-gold-light"
+          >
+            Guardar precios por condición
+          </button>
+        </div>
+      </div>
+
+      <div>
         <h2 className="font-display font-semibold text-lg">Modo bulk</h2>
         <p className="text-ink-400 text-sm mt-1">
           Oculta por defecto en Mi colección las cartas de bajo valor (puedes mostrarlas de nuevo
@@ -200,6 +255,13 @@ export default function AjustesPage() {
             className="w-full px-4 py-2.5 rounded-full bg-gold text-ink-900 text-sm font-medium hover:bg-gold-light"
           >
             Descargar respaldo completo (.json)
+          </button>
+
+          <button
+            onClick={downloadCollectionCsv}
+            className="w-full px-4 py-2.5 rounded-full bg-ink-700 text-ink-100 text-sm font-medium hover:bg-ink-600"
+          >
+            Exportar colección a CSV (Excel/Sheets)
           </button>
 
           <div>

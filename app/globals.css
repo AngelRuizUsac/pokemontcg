@@ -46,3 +46,19 @@ body {
   background: #2c2f38;
   border-radius: 9999px;
 }
+
+/* Hoja de práctica para imprimir (app/imprimir): oculta el navbar y usa
+   fondo/texto claros solo dentro del área de impresión. */
+@media print {
+  header {
+    display: none !important;
+  }
+  body {
+    background: white !important;
+    color: black !important;
+  }
+  main {
+    max-width: 100% !important;
+    padding: 0 !important;
+  }
+}

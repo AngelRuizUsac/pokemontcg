@@ -44,6 +44,10 @@ export interface AppSettings {
   // el validador de legalidad de mazos. Vacío = no se revisa este punto.
   standardMarkFrom: string;
   standardMarkTo: string;
+  // Qué tanto vale una carta según su condición, como fracción del precio de
+  // mercado (ej. 0.5 = 50%). Se usa para que el valor total refleje mejor tu
+  // inventario real, no solo el precio de una copia perfecta.
+  conditionMultipliers: Record<string, number>;
 }
 
 // ---------------------------------------------------------------------------
@@ -104,12 +108,21 @@ const CONTAINERS_KEY = "pokedex-tcg:containers";
 const ALLOCATIONS_KEY = "pokedex-tcg:allocations";
 const WORKSLOTS_KEY = "pokedex-tcg:workslots";
 
+const DEFAULT_CONDITION_MULTIPLIERS: Record<string, number> = {
+  NM: 1,
+  LP: 0.85,
+  MP: 0.7,
+  HP: 0.5,
+  DMG: 0.3,
+};
+
 const DEFAULT_SETTINGS: AppSettings = {
   exchangeRate: 7.5,
   bulkModeEnabled: false,
   bulkThresholdGtq: 5,
   standardMarkFrom: "",
   standardMarkTo: "",
+  conditionMultipliers: DEFAULT_CONDITION_MULTIPLIERS,
 };
 
 function isBrowser() {
@@ -206,16 +219,84 @@ export function removeCollectionEntry(id: string) {
 }
 
 // Precio unitario (en GTQ) de una entrada, usado para decidir si es "bulk".
+// Fracción del precio de mercado que vale una carta según su condición
+// (ej. NM = 100%, DMG = 30%), configurable en Ajustes.
+export function conditionMultiplier(condition: string, settings: AppSettings): number {
+  return settings.conditionMultipliers[condition] ?? 1;
+}
+
+// Precio de una sola copia, ya ajustado por su condición.
+export function entryUnitValueUsd(entry: CollectionEntry, settings: AppSettings): number {
+  if (entry.priceUsd == null) return 0;
+  return entry.priceUsd * conditionMultiplier(entry.condition, settings);
+}
+
+// Valor total de una entrada (precio ajustado por condición × cantidad).
+export function entryValueUsd(entry: CollectionEntry, settings: AppSettings): number {
+  return entryUnitValueUsd(entry, settings) * entry.quantity;
+}
+
 export function entryUnitPriceGtq(entry: CollectionEntry, settings: AppSettings): number {
-  return (entry.priceUsd ?? 0) * settings.exchangeRate;
+  return entryUnitValueUsd(entry, settings) * settings.exchangeRate;
 }
 
 // Una carta es "bulk" si el usuario la marcó manualmente, o si el modo bulk
-// está activo y su precio unitario cae debajo del umbral configurado.
+// está activo y su precio unitario (ya ajustado por condición) cae debajo
+// del umbral configurado.
 export function isEntryBulk(entry: CollectionEntry, settings: AppSettings): boolean {
   if (entry.markedBulk) return true;
   if (!settings.bulkModeEnabled) return false;
   return entryUnitPriceGtq(entry, settings) < settings.bulkThresholdGtq;
+}
+
+// Une entradas duplicadas que quedaron sueltas de antes de que existiera la
+// agrupación automática al agregar cartas (misma carta+condición+idioma+holo,
+// pero en filas separadas). Conserva la más antigua, le suma la cantidad de
+// las demás, reasigna sus asignaciones a binders/mazos, y borra las
+// duplicadas. Nunca mezcla holo con no-holo.
+export function mergeDuplicateCollectionEntries(): { merged: number } {
+  const entries = getCollection();
+  const groups = new Map<string, CollectionEntry[]>();
+  for (const e of entries) {
+    const key = `${e.cardId}|${e.condition}|${e.language}|${e.isHolo}`;
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key)!.push(e);
+  }
+
+  let allocations = getAllocations();
+  const nextEntries: CollectionEntry[] = [];
+  let merged = 0;
+
+  for (const group of groups.values()) {
+    if (group.length === 1) {
+      nextEntries.push(group[0]);
+      continue;
+    }
+    const sorted = [...group].sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+    const survivor = sorted[0];
+    const totalQty = sorted.reduce((sum, e) => sum + e.quantity, 0);
+    nextEntries.push({ ...survivor, quantity: totalQty });
+    merged += group.length - 1;
+
+    const duplicateIds = new Set(sorted.slice(1).map((e) => e.id));
+    allocations = allocations.map((a) =>
+      duplicateIds.has(a.collectionEntryId) ? { ...a, collectionEntryId: survivor.id } : a
+    );
+  }
+
+  // combina asignaciones que quedaron duplicadas (mismo contenedor + misma
+  // entrada) después de reasignar las de arriba
+  const combined = new Map<string, Allocation>();
+  for (const a of allocations) {
+    const key = `${a.containerId}|${a.collectionEntryId}`;
+    const existing = combined.get(key);
+    if (existing) existing.quantity += a.quantity;
+    else combined.set(key, { ...a });
+  }
+
+  saveCollection(nextEntries);
+  saveAllocations(Array.from(combined.values()));
+  return { merged };
 }
 
 // ---------------------------------------------------------------------------
@@ -224,7 +305,16 @@ export function isEntryBulk(entry: CollectionEntry, settings: AppSettings): bool
 
 export function getSettings(): AppSettings {
   const raw = readJson<Partial<AppSettings> | null>(SETTINGS_KEY, null);
-  return raw ? { ...DEFAULT_SETTINGS, ...raw } : DEFAULT_SETTINGS;
+  if (!raw) return DEFAULT_SETTINGS;
+  return {
+    ...DEFAULT_SETTINGS,
+    ...raw,
+    // merge profundo para no perder condiciones que no se hayan editado
+    conditionMultipliers: {
+      ...DEFAULT_CONDITION_MULTIPLIERS,
+      ...(raw.conditionMultipliers ?? {}),
+    },
+  };
 }
 
 export function updateSettings(patch: Partial<AppSettings>) {
@@ -367,6 +457,19 @@ export function setAllocationQuantity(allocationId: string, quantity: number) {
 
 export function removeAllocation(allocationId: string) {
   saveAllocations(getAllocations().filter((a) => a.id !== allocationId));
+}
+
+// Libera todas las cartas asignadas a un binder/mazo (vuelven a estar
+// disponibles sin asignar) SIN borrar el binder/mazo — útil cuando quieres
+// reutilizar esas copias para armar algo nuevo pero no tienes suficientes
+// cartas para tener ambos mazos completos a la vez. El binder/mazo queda
+// vacío pero sigue existiendo (nombre, imagen, modo trabajo, etc. no se tocan).
+export function releaseContainerAllocations(containerId: string): { released: number } {
+  const allocations = getAllocations();
+  const toRelease = allocations.filter((a) => a.containerId === containerId);
+  const released = toRelease.reduce((sum, a) => sum + a.quantity, 0);
+  saveAllocations(allocations.filter((a) => a.containerId !== containerId));
+  return { released };
 }
 
 // Mueve N copias de una entrada de un contenedor a otro (binder<->binder,

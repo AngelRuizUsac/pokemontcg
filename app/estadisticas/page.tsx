@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { getCollection, getSettings, isEntryBulk } from "@/lib/storage";
+import { getCollection, getSettings, isEntryBulk, entryValueUsd } from "@/lib/storage";
 import type { CollectionEntry, AppSettings } from "@/lib/storage";
 import { DEFAULT_EXCHANGE_RATE, formatGtq, formatUsd, usdToGtq } from "@/lib/currency";
 import CardImage from "@/components/CardImage";
@@ -18,6 +18,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   bulkThresholdGtq: 5,
   standardMarkFrom: "",
   standardMarkTo: "",
+  conditionMultipliers: { NM: 1, LP: 0.85, MP: 0.7, HP: 0.5, DMG: 0.3 },
 };
 
 function Bar({ label, value, max, formatted }: { label: string; value: number; max: number; formatted: string }) {
@@ -50,7 +51,7 @@ export default function EstadisticasPage() {
     setLoaded(true);
 
     const nonBulk = coll.filter((e) => !isEntryBulk(e, s));
-    const total = nonBulk.reduce((sum, e) => sum + (e.priceUsd ?? 0) * e.quantity, 0);
+    const total = nonBulk.reduce((sum, e) => sum + entryValueUsd(e, s), 0);
     if (coll.length > 0) recordValueSnapshot(total);
     setHistory(getValueHistory());
 
@@ -77,10 +78,10 @@ export default function EstadisticasPage() {
 
   const totalUnits = entries.reduce((s, e) => s + e.quantity, 0);
   const bulkEntries = entries.filter((e) => isEntryBulk(e, settings));
-  const bulkUsd = bulkEntries.reduce((s, e) => s + (e.priceUsd ?? 0) * e.quantity, 0);
+  const bulkUsd = bulkEntries.reduce((sum, e) => sum + entryValueUsd(e, settings), 0);
   // Las cartas bulk no suman al valor total (ni al desglose por tipo).
   const nonBulkEntries = entries.filter((e) => !isEntryBulk(e, settings));
-  const totalUsd = nonBulkEntries.reduce((s, e) => s + (e.priceUsd ?? 0) * e.quantity, 0);
+  const totalUsd = nonBulkEntries.reduce((sum, e) => sum + entryValueUsd(e, settings), 0);
 
   const byCategory = { Pokemon: 0, Trainer: 0, Energy: 0 } as Record<string, number>;
   const byCategoryUsd = { Pokemon: 0, Trainer: 0, Energy: 0 } as Record<string, number>;
@@ -88,7 +89,7 @@ export default function EstadisticasPage() {
     byCategory[e.category] = (byCategory[e.category] ?? 0) + e.quantity;
   });
   nonBulkEntries.forEach((e) => {
-    byCategoryUsd[e.category] = (byCategoryUsd[e.category] ?? 0) + (e.priceUsd ?? 0) * e.quantity;
+    byCategoryUsd[e.category] = (byCategoryUsd[e.category] ?? 0) + entryValueUsd(e, settings);
   });
 
   const bySet = new Map<string, number>();
@@ -100,7 +101,7 @@ export default function EstadisticasPage() {
 
   const topValuable = entries
     .filter((e) => e.priceUsd != null)
-    .sort((a, b) => (b.priceUsd ?? 0) * b.quantity - (a.priceUsd ?? 0) * a.quantity)
+    .sort((a, b) => entryValueUsd(b, settings) - entryValueUsd(a, settings))
     .slice(0, 10);
 
   const change7d = getValueChange(history, 7);
@@ -215,7 +216,7 @@ export default function EstadisticasPage() {
                 </p>
               </div>
               <p className="font-mono text-sm text-gold">
-                {formatGtq(usdToGtq((e.priceUsd ?? 0) * e.quantity, settings.exchangeRate))}
+                {formatGtq(usdToGtq(entryValueUsd(e, settings), settings.exchangeRate))}
               </p>
             </div>
           ))}

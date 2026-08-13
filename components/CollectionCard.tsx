@@ -9,6 +9,7 @@ import {
   getAllocatedQuantity,
   getContainersForEntry,
   isEntryBulk,
+  entryUnitValueUsd,
 } from "@/lib/storage";
 import type { CollectionEntry, AppSettings } from "@/lib/storage";
 import PriceTicket from "./PriceTicket";
@@ -137,11 +138,16 @@ export default function CollectionCard({
       )}
 
       <PriceTicket
-        priceUsd={entry.priceUsd}
+        priceUsd={entry.priceUsd == null ? null : entryUnitValueUsd(entry, settings)}
         exchangeRate={settings.exchangeRate}
         tcgPlayerUrl={buildTcgPlayerSearchUrl(entry.cardName, entry.setName)}
         size="sm"
       />
+      {entry.condition !== "NM" && entry.priceUsd != null && (
+        <p className="text-ink-400 text-[10px] -mt-1">
+          ajustado por condición ({entry.condition}), precio de mercado: {entry.priceUsd.toFixed(2)} USD
+        </p>
+      )}
 
       {editingNotes ? (
         <div className="flex flex-col gap-1">
