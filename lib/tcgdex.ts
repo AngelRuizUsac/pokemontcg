@@ -9,7 +9,6 @@ import { KNOWN_SET_CODES_BY_ID, KNOWN_SET_CODES_BY_NAME, normalizeSetName } from
 // la comunidad de TCGdex (Discord) recomienda los hosts regionales como
 // respaldo, así que se intentan en orden hasta que uno responda.
 const BASE_HOSTS = [
-  "https://api.tcgdex.net/v2/en",
   "https://api.eu1.tcgdex.net/v2/en",
   "https://api.eu2.tcgdex.net/v2/en",
 ];
