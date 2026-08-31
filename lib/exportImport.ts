@@ -110,6 +110,7 @@ export function downloadCollectionCsv() {
     "Precio mercado USD (unidad)",
     "Precio ajustado USD (unidad)",
     "Valor total USD",
+    "Precio de venta USD (unidad)",
     "Bulk",
     "Notas",
   ];
@@ -129,6 +130,7 @@ export function downloadCollectionCsv() {
       e.priceUsd != null ? e.priceUsd.toFixed(2) : "",
       e.priceUsd != null ? entryUnitValueUsd(e, settings).toFixed(2) : "",
       e.priceUsd != null ? entryValueUsd(e, settings).toFixed(2) : "",
+      e.askingPriceUsd != null ? e.askingPriceUsd.toFixed(2) : "",
       e.markedBulk ? "si" : "no",
       e.notes ?? "",
     ]

@@ -60,6 +60,7 @@ export default function AddToCollectionModal({
       markedBulk: false,
       priceUsd,
       priceUpdatedAt: priceUsd != null ? new Date().toISOString() : null,
+      askingPriceUsd: null,
       effectSignature: computeEffectSignature(card),
     });
 

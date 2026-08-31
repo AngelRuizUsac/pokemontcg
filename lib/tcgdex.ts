@@ -4,7 +4,31 @@ import { KNOWN_SET_CODES_BY_ID, KNOWN_SET_CODES_BY_NAME, normalizeSetName } from
 // API pública y gratuita, sin llave y sin límite de peticiones publicado
 // (https://tcgdex.dev/faq). Se llama directo desde el navegador porque esta
 // app es 100% estática (GitHub Pages) y no tiene backend propio.
-const BASE_URL = "https://api.tcgdex.net/v2/en";
+//
+// El dominio principal (api.tcgdex.net) a veces tiene problemas de DNS/CDN;
+// la comunidad de TCGdex (Discord) recomienda los hosts regionales como
+// respaldo, así que se intentan en orden hasta que uno responda.
+const BASE_HOSTS = [
+  "https://api.tcgdex.net/v2/en",
+  "https://api.eu1.tcgdex.net/v2/en",
+  "https://api.eu2.tcgdex.net/v2/en",
+];
+
+async function tcgdexFetch(path: string): Promise<Response> {
+  let lastError: unknown = null;
+  for (const host of BASE_HOSTS) {
+    try {
+      const res = await fetch(`${host}${path}`);
+      if (res.ok) return res;
+      lastError = new Error(`TCGdex respondió ${res.status}`);
+    } catch (err) {
+      lastError = err;
+    }
+  }
+  throw lastError instanceof Error
+    ? lastError
+    : new Error("No se pudo conectar con TCGdex (todos los servidores fallaron).");
+}
 
 // Límite de resultados detallados que se piden de golpe en una búsqueda,
 // para no disparar cientos de peticiones de "detalle de carta" a la vez.
@@ -21,14 +45,12 @@ export async function searchCards(name: string, page = 1): Promise<CardBrief[]> 
   search.set("pagination:page", String(page));
   search.set("pagination:itemsPerPage", String(PAGE_SIZE));
 
-  const res = await fetch(`${BASE_URL}/cards?${search.toString()}`);
-  if (!res.ok) throw new Error(`TCGdex respondió ${res.status}`);
+  const res = await tcgdexFetch(`/cards?${search.toString()}`);
   return res.json();
 }
 
 export async function getCardById(id: string): Promise<PokemonCard> {
-  const res = await fetch(`${BASE_URL}/cards/${id}`);
-  if (!res.ok) throw new Error(`TCGdex respondió ${res.status}`);
+  const res = await tcgdexFetch(`/cards/${id}`);
   return res.json();
 }
 
@@ -38,8 +60,7 @@ let setsCache: SetBrief[] | null = null;
 // Se cachea en memoria porque no cambia durante la sesión.
 export async function listSets(): Promise<SetBrief[]> {
   if (setsCache) return setsCache;
-  const res = await fetch(`${BASE_URL}/sets`);
-  if (!res.ok) throw new Error(`TCGdex respondió ${res.status}`);
+  const res = await tcgdexFetch(`/sets`);
   const sets: SetBrief[] = await res.json();
   sets.sort((a, b) => a.name.localeCompare(b.name));
   setsCache = sets;
@@ -52,8 +73,7 @@ export async function listSets(): Promise<SetBrief[]> {
 export async function getSetWithCards(
   setId: string
 ): Promise<{ set: SetBrief; cards: CardBrief[] }> {
-  const res = await fetch(`${BASE_URL}/sets/${setId}`);
-  if (!res.ok) throw new Error(`TCGdex respondió ${res.status}`);
+  const res = await tcgdexFetch(`/sets/${setId}`);
   const data = await res.json();
   return { set: data, cards: data.cards ?? [] };
 }
@@ -105,8 +125,7 @@ export async function searchCardsAdvanced(
         if (opts.name?.trim()) params.set("name", opts.name.trim());
         params.set("regulationMark", `eq:${mark}`);
         params.set("pagination:itemsPerPage", "100");
-        const res = await fetch(`${BASE_URL}/cards?${params.toString()}`);
-        if (!res.ok) throw new Error(`TCGdex respondió ${res.status}`);
+        const res = await tcgdexFetch(`/cards?${params.toString()}`);
         return (await res.json()) as CardBrief[];
       })
     );

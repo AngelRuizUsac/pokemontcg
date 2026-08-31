@@ -8,6 +8,7 @@ import type { ContainerType, ContainerImage } from "./storage";
 export interface ShareItem {
   cardId: string; // id de TCGdex
   quantity: number;
+  askingPriceUsd?: number | null; // precio de venta propio (binders), si lo pusiste
 }
 
 export interface SharePayload {

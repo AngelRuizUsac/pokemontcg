@@ -142,6 +142,21 @@ lib/
   types.ts, currency.ts, rarity.ts     → tipos de la API, conversión de moneda, color por rareza
 ```
 
+## Novedades v2.12.1
+
+- **Resistencia a caídas de TCGdex**: si el dominio principal (`api.tcgdex.net`) falla, la app ahora
+  reintenta automáticamente con los servidores regionales que la comunidad de TCGdex recomienda
+  como respaldo en su Discord (`api.eu1.tcgdex.net`, `api.eu2.tcgdex.net`) antes de mostrar un
+  error. No hace falta elegir uno a mano — prueba en orden hasta que alguno responda.
+
+## Novedades v2.12
+
+- **Precio de venta propio** para cartas en binders (distinto del precio de mercado): en Mi
+  colección, cada carta tiene un botón "+ poner precio de venta". Se ve junto al precio de mercado
+  en la vista de construcción y en la vista de solo lectura de un binder, suma aparte en el
+  recuadro de valor ("en venta"), se incluye en el CSV, y viaja en el link para compartir — si le
+  mandas el link a alguien interesado en comprar, ve tu precio de venta, no solo el de mercado.
+
 ## Novedades v2.11
 
 - **"Liberar cartas"** en cada binder/mazo: quita todas las cartas asignadas de golpe (vuelven a

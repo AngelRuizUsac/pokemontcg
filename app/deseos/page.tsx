@@ -99,6 +99,7 @@ export default function DeseosPage() {
         isHolo: false,
         priceUsd: resolveMarketPriceUsd(card),
         priceUpdatedAt: new Date().toISOString(),
+        askingPriceUsd: null,
         notes: null,
         markedBulk: false,
         effectSignature: computeEffectSignature(card),

@@ -23,6 +23,7 @@ function ViewTile({
   subtitle,
   quantity,
   priceLine,
+  askLine,
   dashed,
   exchangeRate,
   clickable = true,
@@ -34,6 +35,7 @@ function ViewTile({
   subtitle: string;
   quantity: number;
   priceLine?: string | null;
+  askLine?: string | null;
   dashed?: boolean;
   exchangeRate: number;
   clickable?: boolean;
@@ -64,6 +66,7 @@ function ViewTile({
           {priceLine}
         </p>
       )}
+      {askLine && <p className="text-holo-pink text-xs font-mono mt-0.5">{askLine}</p>}
       {buySetName && (
         <a
           href={buildTcgPlayerSearchUrl(name, buySetName)}
@@ -123,6 +126,11 @@ export default function DeckViewGrid({
                   priceLine={
                     r.entry.priceUsd != null
                       ? formatGtq(usdToGtq(entryUnitValueUsd(r.entry, settings) * r.alloc.quantity, exchangeRate))
+                      : null
+                  }
+                  askLine={
+                    r.entry.askingPriceUsd != null
+                      ? `en venta: ${formatGtq(usdToGtq(r.entry.askingPriceUsd * r.alloc.quantity, exchangeRate))}`
                       : null
                   }
                 />

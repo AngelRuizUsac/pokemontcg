@@ -148,6 +148,11 @@ export default function ColeccionDetailPage() {
   const ownedUsd = rows
     .filter((r) => !isEntryBulk(r.entry, fullSettings))
     .reduce((sum, r) => sum + entryUnitValueUsd(r.entry, fullSettings) * r.alloc.quantity, 0);
+  // Solo relevante en binders: suma de precios de venta propios que hayas puesto.
+  const askingUsd = rows.reduce(
+    (sum, r) => sum + (r.entry.askingPriceUsd ?? 0) * r.alloc.quantity,
+    0
+  );
   const legality = isDeck ? checkDeckLegality(rows, workSlots, fullSettings) : null;
   const displayedLegality =
     legality && refinedViolations
@@ -251,7 +256,11 @@ export default function ColeccionDetailPage() {
         type: container!.type,
         name: container!.name,
         image: container!.image,
-        items: rows.map((r) => ({ cardId: r.entry.cardId, quantity: r.alloc.quantity })),
+        items: rows.map((r) => ({
+          cardId: r.entry.cardId,
+          quantity: r.alloc.quantity,
+          askingPriceUsd: r.entry.askingPriceUsd,
+        })),
         missing: workSlots.filter((w) => w.category !== "Energy").map((w) => ({ cardId: w.cardId, quantity: w.quantity })),
       })
     );
@@ -327,6 +336,11 @@ export default function ColeccionDetailPage() {
             <div className="bg-ink-800 border border-ink-700 rounded-card px-3 py-2 text-right">
               <p className="text-ink-400 text-[10px] uppercase tracking-wide">Valor</p>
               <p className="font-mono text-sm text-gold">{formatGtq(usdToGtq(ownedUsd, exchangeRate))}</p>
+              {!isDeck && askingUsd > 0 && (
+                <p className="font-mono text-[11px] text-holo-pink mt-0.5">
+                  en venta: {formatGtq(usdToGtq(askingUsd, exchangeRate))}
+                </p>
+              )}
             </div>
           )}
           <div className="flex gap-2">
@@ -692,6 +706,10 @@ function AllocationRow({
     entry.priceUsd != null
       ? `${formatGtq(usdToGtq(entryUnitValueUsd(entry, settings) * alloc.quantity, exchangeRate))}`
       : null;
+  const askLine =
+    entry.askingPriceUsd != null
+      ? `en venta: ${formatGtq(usdToGtq(entry.askingPriceUsd * alloc.quantity, exchangeRate))}`
+      : null;
 
   return (
     <div className="flex items-center gap-3 bg-ink-800 border border-ink-700 rounded-lg p-2.5">
@@ -711,6 +729,7 @@ function AllocationRow({
           {entry.setName} · #{entry.number}
         </p>
         {priceLine && <p className="text-gold text-xs font-mono">{priceLine}</p>}
+        {askLine && <p className="text-holo-pink text-xs font-mono">{askLine}</p>}
       </div>
       <div className="flex items-center gap-1.5">
         <button

@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { rarityBorderClass } from "@/lib/rarity";
 import { buildTcgPlayerSearchUrl } from "@/lib/tcgdex";
+import { formatUsd } from "@/lib/currency";
 import {
   updateCollectionEntry,
   removeCollectionEntry,
@@ -31,6 +32,10 @@ export default function CollectionCard({
   const [showDetail, setShowDetail] = useState(false);
   const [editingNotes, setEditingNotes] = useState(false);
   const [notesDraft, setNotesDraft] = useState(entry.notes ?? "");
+  const [editingAsk, setEditingAsk] = useState(false);
+  const [askDraft, setAskDraft] = useState(
+    entry.askingPriceUsd != null ? String(entry.askingPriceUsd) : ""
+  );
 
   const allocated = getAllocatedQuantity(entry.id);
   const available = entry.quantity - allocated;
@@ -69,6 +74,15 @@ export default function CollectionCard({
   function saveNotes() {
     updateCollectionEntry(entry.id, { notes: notesDraft.trim() || null });
     setEditingNotes(false);
+    onChanged();
+  }
+
+  function saveAskingPrice() {
+    const parsed = askDraft.trim() === "" ? null : Number(askDraft);
+    updateCollectionEntry(entry.id, {
+      askingPriceUsd: parsed != null && !Number.isNaN(parsed) ? parsed : null,
+    });
+    setEditingAsk(false);
     onChanged();
   }
 
@@ -147,6 +161,42 @@ export default function CollectionCard({
         <p className="text-ink-400 text-[10px] -mt-1">
           ajustado por condición ({entry.condition}), precio de mercado: {entry.priceUsd.toFixed(2)} USD
         </p>
+      )}
+
+      {editingAsk ? (
+        <div className="flex items-center gap-1">
+          <span className="text-ink-400 text-xs">Precio de venta: $</span>
+          <input
+            autoFocus
+            type="number"
+            min={0}
+            step="0.01"
+            value={askDraft}
+            onChange={(e) => setAskDraft(e.target.value)}
+            placeholder={entry.priceUsd != null ? entry.priceUsd.toFixed(2) : "0.00"}
+            className="w-20 bg-ink-900 border border-ink-700 rounded px-2 py-1 text-xs font-mono"
+          />
+          <button onClick={saveAskingPrice} className="text-gold text-xs">
+            OK
+          </button>
+        </div>
+      ) : entry.askingPriceUsd != null ? (
+        <button
+          onClick={() => {
+            setAskDraft(String(entry.askingPriceUsd));
+            setEditingAsk(true);
+          }}
+          className="text-left text-holo-pink text-[11px] hover:underline"
+        >
+          En venta: {formatUsd(entry.askingPriceUsd)}
+        </button>
+      ) : (
+        <button
+          onClick={() => setEditingAsk(true)}
+          className="text-left text-ink-400 text-[11px] hover:text-ink-100"
+        >
+          + poner precio de venta
+        </button>
       )}
 
       {editingNotes ? (

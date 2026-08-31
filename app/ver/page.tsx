@@ -13,6 +13,7 @@ import { formatGtq, formatUsd, usdToGtq, DEFAULT_EXCHANGE_RATE } from "@/lib/cur
 interface ResolvedItem {
   card: PokemonCard;
   quantity: number;
+  askingPriceUsd?: number | null;
 }
 
 export default function VerCompartidoPage() {
@@ -38,6 +39,7 @@ export default function VerCompartidoPage() {
         decoded.items.map(async (it) => ({
           card: await getCardById(it.cardId),
           quantity: it.quantity,
+          askingPriceUsd: it.askingPriceUsd ?? null,
         }))
       );
       const resolvedMissing = await Promise.all(
@@ -65,6 +67,7 @@ export default function VerCompartidoPage() {
   }
 
   const totalUsd = items.reduce((s, i) => s + (resolveMarketPriceUsd(i.card) ?? 0) * i.quantity, 0);
+  const askingUsd = items.reduce((s, i) => s + (i.askingPriceUsd ?? 0) * i.quantity, 0);
   const exchangeRate = DEFAULT_EXCHANGE_RATE;
 
   return (
@@ -85,10 +88,15 @@ export default function VerCompartidoPage() {
           {formatGtq(usdToGtq(totalUsd, exchangeRate))}
         </p>
         <p className="font-mono text-xs text-ink-400">{formatUsd(totalUsd)}</p>
+        {askingUsd > 0 && (
+          <p className="font-mono text-xs text-holo-pink mt-1">
+            en venta: {formatGtq(usdToGtq(askingUsd, exchangeRate))}
+          </p>
+        )}
       </div>
 
       <div className="mt-8 grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
-        {items.map(({ card, quantity }) => (
+        {items.map(({ card, quantity, askingPriceUsd }) => (
           <div key={card.id} className="bg-ink-800 border border-ink-700 rounded-card p-3">
             <div className="relative aspect-[5/7] rounded overflow-hidden bg-ink-900">
               <Image
@@ -106,6 +114,11 @@ export default function VerCompartidoPage() {
             <p className="text-ink-400 text-xs">
               {card.set.name} · #{card.localId}
             </p>
+            {askingPriceUsd != null && (
+              <p className="text-holo-pink text-xs font-mono mt-0.5">
+                en venta: {formatGtq(usdToGtq(askingPriceUsd * quantity, exchangeRate))}
+              </p>
+            )}
           </div>
         ))}
       </div>

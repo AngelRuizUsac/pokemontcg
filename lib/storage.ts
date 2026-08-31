@@ -28,6 +28,7 @@ export interface CollectionEntry {
   isHolo: boolean; // marcado manualmente — solo se agrupa con otras holo
   priceUsd: number | null;
   priceUpdatedAt: string | null;
+  askingPriceUsd: number | null; // precio propio de venta (para binders/portafolio) — distinto del precio de mercado
   notes: string | null;
   markedBulk: boolean; // forzado manualmente como "bulk", sin importar precio
   // Firma del efecto (solo Pokémon) usada para agrupar reimpresiones
@@ -234,6 +235,13 @@ export function entryUnitValueUsd(entry: CollectionEntry, settings: AppSettings)
 // Valor total de una entrada (precio ajustado por condición × cantidad).
 export function entryValueUsd(entry: CollectionEntry, settings: AppSettings): number {
   return entryUnitValueUsd(entry, settings) * entry.quantity;
+}
+
+// Valor de venta total de una entrada: usa el precio de venta propio si lo
+// definiste, si no cae al precio de mercado ajustado por condición.
+export function entryAskingValueUsd(entry: CollectionEntry, settings: AppSettings): number {
+  const unit = entry.askingPriceUsd ?? entryUnitValueUsd(entry, settings);
+  return unit * entry.quantity;
 }
 
 export function entryUnitPriceGtq(entry: CollectionEntry, settings: AppSettings): number {
