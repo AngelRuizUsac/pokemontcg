@@ -15,6 +15,7 @@ import { CARD_TYPE_OPTIONS, matchesCardTypeFilter } from "@/lib/cardTypeFilter";
 import { GENERIC_BASIC_ENERGIES } from "@/lib/genericEnergy";
 import { computeEffectSignature } from "@/lib/reprints";
 import CardImage from "./CardImage";
+import LoadingIndicator from "./LoadingIndicator";
 
 export default function AddCardDialog({
   containerId,
@@ -215,7 +216,7 @@ export default function AddCardDialog({
           </>
         )}
 
-        {loading && <p className="text-ink-400 text-sm mt-4">Buscando…</p>}
+        {loading && <LoadingIndicator label="Buscando cartas…" />}
         {error && <p className="text-danger text-sm mt-4">{error}</p>}
 
         <div className="mt-4 overflow-y-auto scrollbar-thin flex-1 flex flex-col gap-2">

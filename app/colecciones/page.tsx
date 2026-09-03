@@ -18,6 +18,7 @@ import {
 import type { Container, ContainerType, MoveLogEntry } from "@/lib/storage";
 import ContainerIcon from "@/components/ContainerIcon";
 import { formatGtq, usdToGtq, DEFAULT_EXCHANGE_RATE } from "@/lib/currency";
+import LoadingIndicator from "@/components/LoadingIndicator";
 
 export default function ColeccionesPage() {
   const [containers, setContainers] = useState<Container[]>([]);
@@ -27,6 +28,7 @@ export default function ColeccionesPage() {
   const [newWorkMode, setNewWorkMode] = useState(false);
   const [moveLog, setMoveLog] = useState<MoveLogEntry[]>([]);
   const [reajusteMessage, setReajusteMessage] = useState<string | null>(null);
+  const [reajustando, setReajustando] = useState(false);
 
   const load = useCallback(() => {
     setContainers(getContainers());
@@ -74,18 +76,47 @@ export default function ColeccionesPage() {
     load();
   }
 
-  function reajustar() {
-    const result = runDeckReajuste();
-    setReajusteMessage(
-      result.movedCount > 0 || result.linkedCount > 0
-        ? `Se movieron ${result.movedCount} carta(s) y ${result.linkedCount} quedaron identificadas como usadas en otro mazo/binder.`
-        : "Los mazos ya están ajustados con las cartas disponibles."
-    );
-    load();
+  async function reajustar() {
+    setReajustando(true);
+    setReajusteMessage(null);
+    try {
+      // Cede un cuadro al navegador para que el indicador se pinte incluso
+      // cuando no hay firmas pendientes y el reajuste termina muy rápido.
+      await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+      const result = await runDeckReajuste();
+      const baseMessage =
+        result.movedCount > 0 || result.linkedCount > 0
+          ? `Se movieron ${result.movedCount} carta(s) y ${result.linkedCount} quedaron identificadas como usadas en otro mazo/binder.`
+          : "Los mazos ya están ajustados con las cartas disponibles.";
+      const migrationMessage = result.hydratedCount > 0
+        ? ` Se actualizaron ${result.hydratedCount} requisito(s) antiguos para reconocer reimpresiones equivalentes.`
+        : "";
+      const warningMessage = result.failedSignatureCount > 0
+        ? ` No se pudieron consultar ${result.failedSignatureCount} carta(s); intenta reajustar de nuevo con conexión a internet.`
+        : "";
+      setReajusteMessage(baseMessage + migrationMessage + warningMessage);
+      load();
+    } catch {
+      // La primera pasada local ya quedó aplicada aunque falle una consulta
+      // posterior. Se informa el problema sin dejar un rechazo sin manejar.
+      setReajusteMessage(
+        "Se aplicó el reajuste con los datos locales, pero no fue posible completar la revisión de reimpresiones. Intenta nuevamente con conexión a internet."
+      );
+      load();
+    } finally {
+      setReajustando(false);
+    }
   }
 
   return (
     <div>
+      {reajustando && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-ink-950/70 backdrop-blur-sm">
+          <div className="rounded-card border border-gold/30 bg-ink-900 px-8 py-6 shadow-xl">
+            <LoadingIndicator label="Revisando y reajustando mazos…" />
+          </div>
+        </div>
+      )}
       <h1 className="font-display font-bold text-2xl">Colecciones</h1>
       <p className="text-ink-400 text-sm mt-1">
         Organiza tus cartas en mazos (para jugar) o binders (portafolio, para
@@ -141,9 +172,10 @@ export default function ColeccionesPage() {
             <button
               type="button"
               onClick={reajustar}
+              disabled={reajustando}
               className="shrink-0 rounded-full bg-gold px-4 py-2 text-sm font-medium text-ink-900 hover:bg-gold-light"
             >
-              Reajustar mazos
+              {reajustando ? <LoadingIndicator label="Revisando cartas…" compact /> : "Reajustar mazos"}
             </button>
           </div>
           {reajusteMessage && <p className="mt-3 text-xs text-holo-cyan">{reajusteMessage}</p>}

@@ -5,6 +5,9 @@
 // sincroniza sola entre el teléfono y la computadora. Para eso está la
 // función de exportar/importar (ver lib/exportImport.ts).
 
+import { getCardById } from "./tcgdex";
+import { computeEffectSignature, effectSignaturesMatch } from "./reprints";
+
 export type CardCategory = "Pokemon" | "Trainer" | "Energy";
 
 export interface CollectionEntry {
@@ -1126,7 +1129,64 @@ export function reorderDeckPriority(deckId: string, direction: "up" | "down") {
 // al de mayor prioridad (dejando en el de menor prioridad la referencia de
 // "usada en", para poder recuperarla después). Así el mazo principal queda
 // completo primero, y los de más abajo se quedan con lo que sobra.
-export function runDeckReajuste(): { movedCount: number; linkedCount: number } {
+// Los respaldos antiguos no incluyen effectSignature en sus WorkSlots. La
+// reconstruimos con la carta de referencia antes de comparar reimpresiones.
+export async function hydrateMissingWorkSlotSignatures(): Promise<{
+  hydratedCount: number;
+  failedCount: number;
+}> {
+  const slots = getWorkSlots();
+  const pokemonByName = new Map<string, CollectionEntry[]>();
+  for (const entry of getCollection()) {
+    if (entry.category !== "Pokemon") continue;
+    const key = entry.cardName.trim().toLowerCase();
+    pokemonByName.set(key, [...(pokemonByName.get(key) ?? []), entry]);
+  }
+  const missingIds = Array.from(new Set(
+    slots
+      .filter((slot) =>
+        slot.category === "Pokemon" && !slot.isGeneric &&
+        !slot.effectSignature && !!slot.cardId &&
+        // Solo hace falta consultar si realmente posees otra impresión con
+        // el mismo nombre. Las cartas que no existen en tu colección siguen
+        // siendo faltantes sin necesidad de esperar una petición de red.
+        (pokemonByName.get(slot.cardName.trim().toLowerCase()) ?? [])
+          .some((entry) => entry.cardId !== slot.cardId)
+      )
+      .map((slot) => slot.cardId)
+  ));
+  const signatures = new Map<string, string>();
+  let failedCount = 0;
+
+  for (let index = 0; index < missingIds.length; index += 6) {
+    const results = await Promise.all(
+      missingIds.slice(index, index + 6).map(async (cardId) => {
+        try {
+          return { cardId, signature: computeEffectSignature(await getCardById(cardId)) };
+        } catch {
+          return { cardId, signature: null };
+        }
+      })
+    );
+    for (const result of results) {
+      if (result.signature) signatures.set(result.cardId, result.signature);
+      else failedCount += 1;
+    }
+  }
+
+  let hydratedCount = 0;
+  const hydrated = slots.map((slot) => {
+    if (slot.effectSignature) return slot;
+    const signature = signatures.get(slot.cardId);
+    if (!signature) return slot;
+    hydratedCount += 1;
+    return { ...slot, effectSignature: signature };
+  });
+  if (hydratedCount > 0) saveWorkSlots(hydrated);
+  return { hydratedCount, failedCount };
+}
+
+function runDeckReajustePass(): { movedCount: number; linkedCount: number } {
   const decks = getContainers()
     .filter((c) => c.type === "deck")
     .sort((a, b) => a.priority - b.priority);
@@ -1238,6 +1298,28 @@ export function runDeckReajuste(): { movedCount: number; linkedCount: number } {
   return { movedCount, linkedCount };
 }
 
+export async function runDeckReajuste(): Promise<{
+  movedCount: number;
+  linkedCount: number;
+  hydratedCount: number;
+  failedSignatureCount: number;
+}> {
+  // La primera pasada no depende de internet: resuelve de inmediato Trainers,
+  // Energy y Pokémon de la misma impresión. Antes, toda esta operación quedaba
+  // bloqueada si una consulta de reimpresiones tardaba demasiado.
+  const first = runDeckReajustePass();
+  const hydration = await hydrateMissingWorkSlotSignatures();
+  // La segunda pasada incorpora las equivalencias entre expansiones que se
+  // acaban de reconstruir.
+  const second = runDeckReajustePass();
+  return {
+    movedCount: first.movedCount + second.movedCount,
+    linkedCount: first.linkedCount + second.linkedCount,
+    hydratedCount: hydration.hydratedCount,
+    failedSignatureCount: hydration.failedCount,
+  };
+}
+
 export function workSlotMatchesEntry(slot: WorkSlot, entry: CollectionEntry): boolean {
   if (
     slot.category !== entry.category ||
@@ -1246,6 +1328,6 @@ export function workSlotMatchesEntry(slot: WorkSlot, entry: CollectionEntry): bo
   if (slot.category !== "Pokemon") return true;
   return (
     slot.cardId === entry.cardId ||
-    (!!slot.effectSignature && slot.effectSignature === entry.effectSignature)
+    effectSignaturesMatch(slot.effectSignature, entry.effectSignature)
   );
 }

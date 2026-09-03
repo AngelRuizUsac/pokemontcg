@@ -9,6 +9,7 @@ import { DEFAULT_EXCHANGE_RATE, formatGtq, formatUsd, usdToGtq } from "@/lib/cur
 import { CARD_TYPE_OPTIONS, matchesCardTypeFilter } from "@/lib/cardTypeFilter";
 import { getCardById } from "@/lib/tcgdex";
 import { resolveMarketPriceUsd } from "@/lib/types";
+import LoadingIndicator from "@/components/LoadingIndicator";
 
 const DEFAULT_SETTINGS: AppSettings = {
   exchangeRate: DEFAULT_EXCHANGE_RATE,
@@ -186,7 +187,7 @@ export default function Home() {
 
       {actionMsg && <p className="text-holo-cyan text-xs mt-3">{actionMsg}</p>}
 
-      {!loaded && entries.length === 0 ? null : entries.length === 0 ? (
+      {!loaded && entries.length === 0 ? <LoadingIndicator label="Cargando colección…" /> : entries.length === 0 ? (
         <div className="mt-16 text-center">
           <p className="text-ink-400">Todavía no tienes cartas registradas.</p>
           <Link

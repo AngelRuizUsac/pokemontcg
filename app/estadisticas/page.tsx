@@ -11,6 +11,7 @@ import { recordValueSnapshot, getValueHistory, getValueChange } from "@/lib/valu
 import type { ValueSnapshot } from "@/lib/valueHistory";
 import { listSets } from "@/lib/tcgdex";
 import type { SetBrief } from "@/lib/types";
+import LoadingIndicator from "@/components/LoadingIndicator";
 
 const DEFAULT_SETTINGS: AppSettings = {
   exchangeRate: DEFAULT_EXCHANGE_RATE,
@@ -60,7 +61,7 @@ export default function EstadisticasPage() {
       .catch(() => {});
   }, []);
 
-  if (!loaded) return <p className="text-ink-400 text-sm">Cargando…</p>;
+  if (!loaded) return <LoadingIndicator label="Calculando estadísticas…" />;
 
   if (entries.length === 0) {
     return (

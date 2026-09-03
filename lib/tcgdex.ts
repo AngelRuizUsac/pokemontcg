@@ -17,12 +17,16 @@ const BASE_HOSTS = [
 async function tcgdexFetch(path: string): Promise<Response> {
   let lastError: unknown = null;
   for (const host of BASE_HOSTS) {
+    const controller = new AbortController();
+    const timeoutId = window.setTimeout(() => controller.abort(), 6000);
     try {
-      const res = await fetch(`${host}${path}`);
+      const res = await fetch(`${host}${path}`, { signal: controller.signal });
       if (res.ok) return res;
       lastError = new Error(`TCGdex respondió ${res.status}`);
     } catch (err) {
       lastError = err;
+    } finally {
+      window.clearTimeout(timeoutId);
     }
   }
   throw lastError instanceof Error

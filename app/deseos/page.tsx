@@ -17,6 +17,7 @@ import type { PokemonCard } from "@/lib/types";
 import { computeEffectSignature } from "@/lib/reprints";
 import { DEFAULT_EXCHANGE_RATE, formatGtq, formatUsd, usdToGtq } from "@/lib/currency";
 import CardImage from "@/components/CardImage";
+import LoadingIndicator from "@/components/LoadingIndicator";
 
 const PRIORITY_LABEL: Record<WishlistPriority, string> = {
   high: "Alta",
@@ -147,7 +148,7 @@ export default function DeseosPage() {
         </button>
       </form>
 
-      {loading && <p className="text-ink-400 text-sm mt-6">Buscando…</p>}
+      {loading && <LoadingIndicator label="Buscando cartas…" />}
       {error && <p className="text-danger text-sm mt-6">{error}</p>}
 
       {results.length > 0 && (

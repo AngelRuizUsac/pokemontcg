@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useCallback } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import {
   getContainer,
   updateContainer,
@@ -66,6 +67,7 @@ interface DeckGroup {
 }
 
 export default function ColeccionDetailPage() {
+  const router = useRouter();
   const [containerId, setContainerId] = useState<string | null>(null);
 
   useEffect(() => {
@@ -253,7 +255,10 @@ export default function ColeccionDetailPage() {
   function deleteContainer() {
     if (!confirm(`¿Eliminar "${container!.name}"? Las cartas volverán a estar disponibles sin asignar.`)) return;
     removeContainer(container!.id);
-    window.location.href = "/colecciones/";
+    // El router conserva automáticamente el basePath usado en GitHub Pages.
+    // Una navegación absoluta con window.location enviaba al dominio raíz y
+    // provocaba un 404 cuando la app vive dentro de /nombre-del-repositorio/.
+    router.replace("/colecciones");
   }
 
   function releaseCards() {

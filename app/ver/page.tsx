@@ -9,6 +9,7 @@ import { resolveMarketPriceUsd } from "@/lib/types";
 import type { PokemonCard } from "@/lib/types";
 import ContainerIcon from "@/components/ContainerIcon";
 import { formatGtq, formatUsd, usdToGtq, DEFAULT_EXCHANGE_RATE } from "@/lib/currency";
+import LoadingIndicator from "@/components/LoadingIndicator";
 
 interface ResolvedItem {
   card: PokemonCard;
@@ -55,7 +56,7 @@ export default function VerCompartidoPage() {
   }, []);
 
   if (payload === undefined || loading) {
-    return <p className="text-ink-400 text-sm">Cargando colección compartida…</p>;
+    return <LoadingIndicator label="Cargando colección compartida…" />;
   }
 
   if (!payload) {

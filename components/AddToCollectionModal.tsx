@@ -7,6 +7,7 @@ import { cardImageUrl, resolveSetCode, buildTcgPlayerSearchUrl } from "@/lib/tcg
 import { addOrMergeToCollection } from "@/lib/storage";
 import { computeEffectSignature } from "@/lib/reprints";
 import CardImage from "./CardImage";
+import LoadingIndicator from "./LoadingIndicator";
 
 const CONDITIONS = [
   { value: "NM", label: "Casi nueva (NM)" },
@@ -168,7 +169,7 @@ export default function AddToCollectionModal({
             disabled={saving}
             className="text-sm px-4 py-2 rounded-full bg-gold text-ink-900 font-medium hover:bg-gold-light disabled:opacity-50"
           >
-            {saving ? "Guardando…" : "Guardar en mi colección"}
+            {saving ? <LoadingIndicator label="Guardando…" compact /> : "Guardar en mi colección"}
           </button>
         </div>
       </div>

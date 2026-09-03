@@ -7,6 +7,7 @@ import type { PokemonCard } from "@/lib/types";
 import { addWishlistItem, isInWishlist } from "@/lib/storage";
 import PriceTicket from "./PriceTicket";
 import CardImage from "./CardImage";
+import LoadingIndicator from "./LoadingIndicator";
 import { DEFAULT_EXCHANGE_RATE } from "@/lib/currency";
 
 export default function CardDetailModal({
@@ -55,7 +56,7 @@ export default function CardDetailModal({
           </button>
         </div>
 
-        {loading && <p className="text-ink-400 text-sm text-center py-12">Cargando carta…</p>}
+        {loading && <LoadingIndicator label="Cargando carta…" />}
         {error && <p className="text-danger text-sm text-center py-12">{error}</p>}
 
         {card && (

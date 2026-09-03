@@ -1,9 +1,10 @@
 "use client";
 
-import { useState } from "react";
-import { getCollection, getAvailableQuantity, replaceWorkSlotWithOwned, workSlotMatchesEntry } from "@/lib/storage";
+import { useEffect, useState } from "react";
+import { getCollection, getAvailableQuantity, getWorkSlots, hydrateMissingWorkSlotSignatures, replaceWorkSlotWithOwned, workSlotMatchesEntry } from "@/lib/storage";
 import type { WorkSlot } from "@/lib/storage";
 import CardImage from "./CardImage";
+import LoadingIndicator from "./LoadingIndicator";
 
 export default function ReplaceWorkSlotDialog({
   slot,
@@ -14,14 +15,33 @@ export default function ReplaceWorkSlotDialog({
   onClose: () => void;
   onReplaced: () => void;
 }) {
-  const candidates = getCollection().filter(
-    (entry) => workSlotMatchesEntry(slot, entry) && getAvailableQuantity(entry.id) > 0
+  const [effectiveSlot, setEffectiveSlot] = useState(slot);
+  const [checkingReprints, setCheckingReprints] = useState(
+    slot.category === "Pokemon" && !slot.effectSignature
   );
   const [error, setError] = useState<string | null>(null);
   const [quantities, setQuantities] = useState<Record<string, number>>({});
+  const candidates = getCollection().filter(
+    (entry) => workSlotMatchesEntry(effectiveSlot, entry) && getAvailableQuantity(entry.id) > 0
+  );
+
+  useEffect(() => {
+    if (slot.category !== "Pokemon" || slot.effectSignature) return;
+    let active = true;
+    hydrateMissingWorkSlotSignatures()
+      .then(() => {
+        if (!active) return;
+        const updated = getWorkSlots().find((item) => item.id === slot.id);
+        if (updated) setEffectiveSlot(updated);
+      })
+      .finally(() => {
+        if (active) setCheckingReprints(false);
+      });
+    return () => { active = false; };
+  }, [slot]);
 
   function confirm(entryId: string) {
-    const qty = Math.min(quantities[entryId] ?? 1, slot.quantity);
+    const qty = Math.min(quantities[entryId] ?? 1, effectiveSlot.quantity);
     const result = replaceWorkSlotWithOwned(slot.id, entryId, qty);
     if (!result.ok) {
       setError(result.reason ?? "No se pudo hacer el cambio.");
@@ -41,7 +61,9 @@ export default function ReplaceWorkSlotDialog({
           Cambia copias de "{slot.cardName}" que te faltaban por copias reales que ya tienes.
         </p>
 
-        {candidates.length === 0 ? (
+        {checkingReprints ? (
+          <LoadingIndicator label="Buscando reimpresiones equivalentes…" compact />
+        ) : candidates.length === 0 ? (
           <p className="text-ink-400 text-sm mt-4">
             Todavía no tienes ninguna copia disponible de esta carta en tu colección.
           </p>
@@ -66,8 +88,8 @@ export default function ReplaceWorkSlotDialog({
                   <input
                     type="number"
                     min={1}
-                    max={Math.min(available, slot.quantity)}
-                    value={quantities[entry.id] ?? Math.min(available, slot.quantity)}
+                    max={Math.min(available, effectiveSlot.quantity)}
+                    value={quantities[entry.id] ?? Math.min(available, effectiveSlot.quantity)}
                     onChange={(e) =>
                       setQuantities((q) => ({ ...q, [entry.id]: Number(e.target.value) }))
                     }

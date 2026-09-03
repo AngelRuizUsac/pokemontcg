@@ -15,6 +15,7 @@ import { getSettings } from "@/lib/storage";
 import { DEFAULT_EXCHANGE_RATE } from "@/lib/currency";
 import { CARD_TYPE_OPTIONS, matchesCardTypeFilter } from "@/lib/cardTypeFilter";
 import { resolveMarketPriceUsd } from "@/lib/types";
+import LoadingIndicator from "@/components/LoadingIndicator";
 
 type SortOption = "relevance" | "price-desc" | "price-asc" | "name";
 
@@ -149,9 +150,10 @@ export default function BuscarPage() {
           />
           <button
             type="submit"
-            className="px-5 py-2.5 rounded-full bg-gold text-ink-900 text-sm font-medium hover:bg-gold-light"
+            disabled={loading}
+            className="px-5 py-2.5 rounded-full bg-gold text-ink-900 text-sm font-medium hover:bg-gold-light disabled:opacity-60"
           >
-            Buscar
+            {loading ? <LoadingIndicator label="Buscando…" compact /> : "Buscar"}
           </button>
         </div>
 
@@ -243,7 +245,7 @@ export default function BuscarPage() {
         </div>
       </form>
 
-      {loading && <p className="text-ink-400 text-sm mt-8">Buscando cartas…</p>}
+      {loading && <LoadingIndicator label="Buscando cartas…" />}
       {error && <p className="text-danger text-sm mt-8">{error}</p>}
 
       {!loading && !error && results.length === 0 && (term || setFilterOn || markFilterOn) && (
@@ -279,7 +281,7 @@ export default function BuscarPage() {
             disabled={loadingMore}
             className="px-5 py-2.5 rounded-full bg-ink-700 text-ink-100 text-sm font-medium hover:bg-ink-600 disabled:opacity-50"
           >
-            {loadingMore ? "Cargando…" : "Ver más resultados"}
+            {loadingMore ? <LoadingIndicator label="Cargando…" compact /> : "Ver más resultados"}
           </button>
         </div>
       )}

@@ -31,6 +31,46 @@ export function computeEffectSignature(card: PokemonCard): string | null {
   });
 }
 
+function normalizeSignatureValue(value: unknown): unknown {
+  if (typeof value === "string") {
+    return value
+      .normalize("NFKD")
+      .replace(/[’‘`]/g, "'")
+      .replace(/×/g, "x")
+      .replace(/[\u0300-\u036f]/g, "")
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, " ")
+      .trim();
+  }
+  if (Array.isArray(value)) return value.map(normalizeSignatureValue);
+  if (value && typeof value === "object") {
+    return Object.fromEntries(
+      Object.entries(value as Record<string, unknown>).map(([key, item]) => [
+        key,
+        normalizeSignatureValue(item),
+      ])
+    );
+  }
+  return value;
+}
+
+// TCGdex puede corregir apóstrofos, acentos, espacios o puntuación entre una
+// impresión y otra. Esas diferencias editoriales no cambian cómo funciona la
+// carta y no deben hacer que aparezca como una compra pendiente.
+export function effectSignaturesMatch(
+  left: string | null | undefined,
+  right: string | null | undefined
+): boolean {
+  if (!left || !right) return false;
+  if (left === right) return true;
+  try {
+    return JSON.stringify(normalizeSignatureValue(JSON.parse(left))) ===
+      JSON.stringify(normalizeSignatureValue(JSON.parse(right)));
+  } catch {
+    return false;
+  }
+}
+
 // Clave de agrupación para la vista de mazos: las cartas Trainer/Energy se
 // agrupan solo por nombre; las Pokémon, por nombre + firma de efecto (así
 // las reimpresiones con ataques distintos NO se mezclan entre sí).
