@@ -6,7 +6,7 @@
 // función de exportar/importar (ver lib/exportImport.ts).
 
 import { getCardById } from "./tcgdex";
-import { computeEffectSignature, effectSignaturesMatch } from "./reprints";
+import { computeEffectSignature, effectSignaturesMatch, normalizeCardName } from "./reprints";
 
 export type CardCategory = "Pokemon" | "Trainer" | "Energy";
 
@@ -1139,7 +1139,7 @@ export async function hydrateMissingWorkSlotSignatures(): Promise<{
   const pokemonByName = new Map<string, CollectionEntry[]>();
   for (const entry of getCollection()) {
     if (entry.category !== "Pokemon") continue;
-    const key = entry.cardName.trim().toLowerCase();
+    const key = normalizeCardName(entry.cardName);
     pokemonByName.set(key, [...(pokemonByName.get(key) ?? []), entry]);
   }
   const missingIds = Array.from(new Set(
@@ -1150,7 +1150,7 @@ export async function hydrateMissingWorkSlotSignatures(): Promise<{
         // Solo hace falta consultar si realmente posees otra impresión con
         // el mismo nombre. Las cartas que no existen en tu colección siguen
         // siendo faltantes sin necesidad de esperar una petición de red.
-        (pokemonByName.get(slot.cardName.trim().toLowerCase()) ?? [])
+        (pokemonByName.get(normalizeCardName(slot.cardName)) ?? [])
           .some((entry) => entry.cardId !== slot.cardId)
       )
       .map((slot) => slot.cardId)
@@ -1323,7 +1323,7 @@ export async function runDeckReajuste(): Promise<{
 export function workSlotMatchesEntry(slot: WorkSlot, entry: CollectionEntry): boolean {
   if (
     slot.category !== entry.category ||
-    slot.cardName.trim().toLowerCase() !== entry.cardName.trim().toLowerCase()
+    normalizeCardName(slot.cardName) !== normalizeCardName(entry.cardName)
   ) return false;
   if (slot.category !== "Pokemon") return true;
   return (

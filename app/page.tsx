@@ -10,6 +10,7 @@ import { CARD_TYPE_OPTIONS, matchesCardTypeFilter } from "@/lib/cardTypeFilter";
 import { getCardById } from "@/lib/tcgdex";
 import { resolveMarketPriceUsd } from "@/lib/types";
 import LoadingIndicator from "@/components/LoadingIndicator";
+import { deckGroupKey } from "@/lib/reprints";
 
 const DEFAULT_SETTINGS: AppSettings = {
   exchangeRate: DEFAULT_EXCHANGE_RATE,
@@ -53,6 +54,7 @@ export default function Home() {
   const [showBulk, setShowBulk] = useState(true);
   const [showFree, setShowFree] = useState(true);
   const [showAssigned, setShowAssigned] = useState(true);
+  const [groupReprints, setGroupReprints] = useState(false);
   const [sort, setSort] = useState<SortOption>("name");
   const [busyAction, setBusyAction] = useState<"prices" | "merge" | null>(null);
   const [actionMsg, setActionMsg] = useState<string | null>(null);
@@ -133,6 +135,24 @@ export default function Home() {
   );
 
   const totalCards = entries.reduce((sum, e) => sum + e.quantity, 0);
+  const collectionGroups = Array.from(
+    visible.reduce((groups, entry) => {
+      const key = deckGroupKey(entry);
+      const current = groups.get(key);
+      if (current) {
+        current.entries.push(entry);
+        current.totalQuantity += entry.quantity;
+      } else {
+        groups.set(key, {
+          key,
+          cardName: entry.cardName,
+          entries: [entry],
+          totalQuantity: entry.quantity,
+        });
+      }
+      return groups;
+    }, new Map<string, { key: string; cardName: string; entries: CollectionEntry[]; totalQuantity: number }>()).values()
+  );
   // Las cartas marcadas/clasificadas como bulk no suman al valor total, y el
   // valor de cada una se ajusta según su condición.
   const totalUsd = entries
@@ -272,16 +292,45 @@ export default function Home() {
               />
               Asignadas
             </label>
+            <label className="flex items-center gap-1.5 text-xs text-ink-400">
+              <input
+                type="checkbox"
+                checked={groupReprints}
+                onChange={(e) => setGroupReprints(e.target.checked)}
+                className="accent-gold"
+              />
+              Agrupar reimpresiones
+            </label>
           </div>
 
           {visible.length === 0 ? (
             <p className="text-ink-400 text-sm mt-8">Ninguna carta coincide con este filtro.</p>
           ) : (
-            <div className="mt-6 grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
-              {visible.map((entry) => (
-                <CollectionCard key={entry.id} entry={entry} settings={settings} onChanged={load} />
-              ))}
-            </div>
+            groupReprints ? (
+              <div className="mt-6 flex flex-col gap-3">
+                {collectionGroups.map((group) => (
+                  <details key={group.key} className="rounded-card border border-ink-700 bg-ink-800" open={group.entries.length === 1}>
+                    <summary className="flex cursor-pointer items-center justify-between gap-3 p-3">
+                      <span className="font-display font-semibold text-sm">{group.cardName}</span>
+                      <span className="text-xs text-ink-400">
+                        x{group.totalQuantity} · {group.entries.length} {group.entries.length === 1 ? "impresión" : "impresiones"}
+                      </span>
+                    </summary>
+                    <div className="grid grid-cols-2 gap-4 border-t border-ink-700 p-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5">
+                      {group.entries.map((entry) => (
+                        <CollectionCard key={entry.id} entry={entry} settings={settings} onChanged={load} />
+                      ))}
+                    </div>
+                  </details>
+                ))}
+              </div>
+            ) : (
+              <div className="mt-6 grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
+                {visible.map((entry) => (
+                  <CollectionCard key={entry.id} entry={entry} settings={settings} onChanged={load} />
+                ))}
+              </div>
+            )
           )}
         </>
       )}

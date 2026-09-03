@@ -4,6 +4,7 @@
 // origen de cada una.
 
 import { getContainers, getWorkSlotsForDeck, getWishlist, getUsedLinks, getCollectionEntry } from "./storage";
+import { reprintGroupKey } from "./reprints";
 
 export interface ShoppingSource {
   type: "deck" | "wishlist";
@@ -39,14 +40,34 @@ export function buildShoppingList(): ShoppingLine[] {
     quantity: number,
     source: ShoppingSource,
     availability: ShoppingLine["availability"] = "missing",
-    move?: ShoppingLine["moves"][number]
+    move?: ShoppingLine["moves"][number],
+    groupKey: string = cardId
   ) {
-    const key = `${availability}:${cardId}`;
+    const key = `${availability}:${groupKey}`;
     const existing = byCard.get(key);
     if (existing) {
-      existing.totalQuantity += quantity;
-      existing.sources.push(source);
+      const existingSource = existing.sources.find(
+        (item) => item.type === source.type && item.id === source.id
+      );
+      if (existingSource) existingSource.quantity += source.quantity;
+      else existing.sources.push(source);
       if (move) existing.moves.push(move);
+      if (availability === "missing") {
+        // Un mismo juego de copias puede rotarse entre mazos. Se compra la
+        // demanda mayor de un solo mazo, no la suma de todos los mazos.
+        const deckMaximum = Math.max(
+          0,
+          ...existing.sources
+            .filter((item) => item.type === "deck")
+            .map((item) => item.quantity)
+        );
+        const wishlistTotal = existing.sources
+          .filter((item) => item.type === "wishlist")
+          .reduce((sum, item) => sum + item.quantity, 0);
+        existing.totalQuantity = deckMaximum + wishlistTotal;
+      } else {
+        existing.totalQuantity += quantity;
+      }
     } else {
       byCard.set(key, {
         key,
@@ -67,12 +88,18 @@ export function buildShoppingList(): ShoppingLine[] {
   for (const deck of getContainers().filter((c) => c.type === "deck")) {
     for (const slot of getWorkSlotsForDeck(deck.id)) {
       if (slot.isGeneric) continue;
+      const groupKey = reprintGroupKey(
+        slot.cardName,
+        slot.category,
+        slot.effectSignature,
+        slot.cardId
+      );
       add(slot.cardId, slot.cardName, slot.setName, slot.number, slot.imageUrl, slot.priceUsd, slot.quantity, {
         type: "deck",
         id: deck.id,
         label: deck.name,
         quantity: slot.quantity,
-      });
+      }, "missing", undefined, groupKey);
     }
   }
 

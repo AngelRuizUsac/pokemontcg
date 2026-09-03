@@ -54,6 +54,24 @@ function normalizeSignatureValue(value: unknown): unknown {
   return value;
 }
 
+function canonicalEffectSignature(signature: string): string {
+  try {
+    return JSON.stringify(normalizeSignatureValue(JSON.parse(signature)));
+  } catch {
+    return signature;
+  }
+}
+
+export function normalizeCardName(name: string): string {
+  return name
+    .normalize("NFKD")
+    .replace(/[’‘`]/g, "'")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+}
+
 // TCGdex puede corregir apóstrofos, acentos, espacios o puntuación entre una
 // impresión y otra. Esas diferencias editoriales no cambian cómo funciona la
 // carta y no deben hacer que aparezca como una compra pendiente.
@@ -63,22 +81,27 @@ export function effectSignaturesMatch(
 ): boolean {
   if (!left || !right) return false;
   if (left === right) return true;
-  try {
-    return JSON.stringify(normalizeSignatureValue(JSON.parse(left))) ===
-      JSON.stringify(normalizeSignatureValue(JSON.parse(right)));
-  } catch {
-    return false;
+  return canonicalEffectSignature(left) === canonicalEffectSignature(right);
+}
+
+export function reprintGroupKey(
+  cardName: string,
+  category: CollectionEntry["category"],
+  effectSignature?: string | null,
+  fallbackCardId = "unknown"
+): string {
+  const name = normalizeCardName(cardName);
+  if (category === "Pokemon") {
+    return `${category}:${name}::${effectSignature ? canonicalEffectSignature(effectSignature) : fallbackCardId}`;
   }
+  return `${category}:${name}::name-only`;
 }
 
 // Clave de agrupación para la vista de mazos: las cartas Trainer/Energy se
 // agrupan solo por nombre; las Pokémon, por nombre + firma de efecto (así
 // las reimpresiones con ataques distintos NO se mezclan entre sí).
 export function deckGroupKey(entry: CollectionEntry): string {
-  if (entry.category === "Pokemon" && entry.effectSignature) {
-    return `${entry.cardName}::${entry.effectSignature}`;
-  }
-  return `${entry.cardName}::name-only`;
+  return reprintGroupKey(entry.cardName, entry.category, entry.effectSignature, entry.cardId);
 }
 
 export interface DeckReprintGroup {

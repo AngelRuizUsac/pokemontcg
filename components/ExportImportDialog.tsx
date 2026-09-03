@@ -17,7 +17,7 @@ import { resolveMarketPriceUsd } from "@/lib/types";
 import { cardImageUrl, resolveSetCode } from "@/lib/tcgdex";
 import { downloadJson } from "@/lib/exportImport";
 import { GENERIC_BASIC_ENERGIES } from "@/lib/genericEnergy";
-import { computeEffectSignature, effectSignaturesMatch } from "@/lib/reprints";
+import { computeEffectSignature, effectSignaturesMatch, normalizeCardName } from "@/lib/reprints";
 
 interface Row {
   entry: CollectionEntry;
@@ -169,7 +169,7 @@ export default function ExportImportDialog({
         const matchesCard = (entry: CollectionEntry) => {
           if (
             entry.category !== card.category ||
-            entry.cardName.trim().toLowerCase() !== card.name.trim().toLowerCase()
+            normalizeCardName(entry.cardName) !== normalizeCardName(card.name)
           ) return false;
           if (card.category !== "Pokemon") return true;
           return entry.cardId === card.id || effectSignaturesMatch(importedSignature, entry.effectSignature);
