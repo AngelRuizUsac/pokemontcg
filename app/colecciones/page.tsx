@@ -9,6 +9,7 @@ import {
   getWorkSlotsForDeck,
   getDeckMissingValueUsd,
   getSettings,
+  getUsedLinksRequestedBy,
   reorderDeckPriority,
   runDeckReajuste,
   getMoveLog,
@@ -308,6 +309,9 @@ function ContainerTile({
         .reduce((sum, w) => sum + w.quantity, 0)
     : 0;
   const totalUnits = allocations.reduce((sum, a) => sum + a.quantity, 0) + energyUnits;
+  const usedElsewhereUnits = isDeck
+    ? getUsedLinksRequestedBy(container.id).reduce((sum, link) => sum + link.quantity, 0)
+    : 0;
   const missingUsd = isDeck ? getDeckMissingValueUsd(container.id) : 0;
 
   return (
@@ -319,7 +323,9 @@ function ContainerTile({
       <p className="font-display font-semibold text-sm leading-tight mt-1">
         {container.name}
       </p>
-      <p className="text-ink-400 text-xs">{totalUnits} cartas asignadas</p>
+      <p className="text-ink-400 text-xs">
+        {totalUnits + usedElsewhereUnits} {isDeck ? "cartas del mazo" : "cartas asignadas"}
+      </p>
       {container.type === "deck" && container.workMode && (
         <span className="text-[10px] text-holo-cyan w-fit px-1.5 py-0.5 rounded bg-holo-cyan/10 border border-holo-cyan/30">
           modo trabajo

@@ -165,8 +165,15 @@ export default function ExportImportDialog({
       let queuedAsWork = 0;
 
       for (const { line, card } of matched) {
-        const matchesCard = (e: CollectionEntry) =>
-          card.category === "Energy" ? e.cardName === card.name : e.cardId === card.id;
+        const importedSignature = computeEffectSignature(card);
+        const matchesCard = (entry: CollectionEntry) => {
+          if (
+            entry.category !== card.category ||
+            entry.cardName.trim().toLowerCase() !== card.name.trim().toLowerCase()
+          ) return false;
+          if (card.category !== "Pokemon") return true;
+          return entry.cardId === card.id || (!!importedSignature && entry.effectSignature === importedSignature);
+        };
 
         let remaining = line.quantity;
 

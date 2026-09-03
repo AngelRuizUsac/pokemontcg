@@ -48,6 +48,7 @@ export default function Home() {
   const [loaded, setLoaded] = useState(false);
   const [search, setSearch] = useState("");
   const [typeFilter, setTypeFilter] = useState("");
+  const [rarityFilter, setRarityFilter] = useState("");
   const [showBulk, setShowBulk] = useState(true);
   const [showFree, setShowFree] = useState(true);
   const [showAssigned, setShowAssigned] = useState(true);
@@ -119,6 +120,7 @@ export default function Home() {
     entries.filter((e) => {
       if (term && !e.cardName.toLowerCase().includes(term)) return false;
       if (!matchesCardTypeFilter(typeFilter, e.category, e.trainerType, e.energyType)) return false;
+      if (rarityFilter && e.rarity !== rarityFilter) return false;
       if (!showBulk && isEntryBulk(e, settings)) return false;
       const isFree = getAvailableQuantity(e.id) > 0;
       if (isFree && !showFree) return false;
@@ -136,6 +138,9 @@ export default function Home() {
     .filter((e) => !isEntryBulk(e, settings))
     .reduce((sum, e) => sum + entryValueUsd(e, settings), 0);
   const bulkCount = entries.filter((e) => isEntryBulk(e, settings)).length;
+  const rarities = Array.from(
+    new Set(entries.map((entry) => entry.rarity).filter((rarity): rarity is string => !!rarity))
+  ).sort((a, b) => a.localeCompare(b));
 
   return (
     <div>
@@ -222,6 +227,21 @@ export default function Home() {
                 </option>
               ))}
             </select>
+            <label className="flex items-center gap-1.5 text-xs text-ink-400">
+              Rareza:
+              <select
+                value={rarityFilter}
+                onChange={(e) => setRarityFilter(e.target.value)}
+                className="bg-ink-800 border border-ink-700 rounded px-2 py-2 text-xs text-ink-50"
+              >
+                <option value="">Todas</option>
+                {rarities.map((rarity) => (
+                  <option key={rarity} value={rarity}>
+                    {rarity}
+                  </option>
+                ))}
+              </select>
+            </label>
             {bulkCount > 0 && (
               <label className="flex items-center gap-1.5 text-xs text-ink-400">
                 <input

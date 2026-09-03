@@ -1238,8 +1238,11 @@ export function runDeckReajuste(): { movedCount: number; linkedCount: number } {
   return { movedCount, linkedCount };
 }
 
-function workSlotMatchesEntry(slot: WorkSlot, entry: CollectionEntry): boolean {
-  if (slot.category !== entry.category || slot.cardName !== entry.cardName) return false;
+export function workSlotMatchesEntry(slot: WorkSlot, entry: CollectionEntry): boolean {
+  if (
+    slot.category !== entry.category ||
+    slot.cardName.trim().toLowerCase() !== entry.cardName.trim().toLowerCase()
+  ) return false;
   if (slot.category !== "Pokemon") return true;
   return (
     slot.cardId === entry.cardId ||

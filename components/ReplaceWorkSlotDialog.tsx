@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { getCollection, getAvailableQuantity, replaceWorkSlotWithOwned } from "@/lib/storage";
+import { getCollection, getAvailableQuantity, replaceWorkSlotWithOwned, workSlotMatchesEntry } from "@/lib/storage";
 import type { WorkSlot } from "@/lib/storage";
 import CardImage from "./CardImage";
 
@@ -15,7 +15,7 @@ export default function ReplaceWorkSlotDialog({
   onReplaced: () => void;
 }) {
   const candidates = getCollection().filter(
-    (e) => e.cardName === slot.cardName && getAvailableQuantity(e.id) > 0
+    (entry) => workSlotMatchesEntry(slot, entry) && getAvailableQuantity(entry.id) > 0
   );
   const [error, setError] = useState<string | null>(null);
   const [quantities, setQuantities] = useState<Record<string, number>>({});

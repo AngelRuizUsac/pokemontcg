@@ -119,12 +119,32 @@ export default function ColeccionDetailPage() {
     load();
   }, [load]);
 
+  // Para el conteo, composición y legalidad, una carta físicamente ubicada
+  // en otro contenedor sigue formando parte de la lista de este mazo.
+  const usedRows: Row[] = usedLinks
+    .map((link) => {
+      const entry = getCollectionEntry(link.collectionEntryId);
+      return entry
+        ? {
+            entry,
+            alloc: {
+              id: `used-${link.id}`,
+              containerId: link.requestingContainerId,
+              collectionEntryId: link.collectionEntryId,
+              quantity: link.quantity,
+            },
+          }
+        : null;
+    })
+    .filter((row): row is Row => row !== null);
+  const deckListRows = [...rows, ...usedRows];
+
   // Segunda pasada: revisa contra TCGdex si las cartas Trainer/Energy fuera
   // de rango tienen alguna reimpresión vigente (ver lib/deckLegality.ts).
   const legalityKey =
     container?.type === "deck"
       ? JSON.stringify(
-          checkDeckLegality(rows, workSlots, getSettings()).regulationViolations
+          checkDeckLegality(deckListRows, workSlots, getSettings()).regulationViolations
         )
       : "";
 
@@ -133,7 +153,7 @@ export default function ColeccionDetailPage() {
       setRefinedViolations(null);
       return;
     }
-    const violations = checkDeckLegality(rows, workSlots, getSettings()).regulationViolations;
+    const violations = checkDeckLegality(deckListRows, workSlots, getSettings()).regulationViolations;
     if (violations.length === 0) {
       setRefinedViolations([]);
       return;
@@ -170,7 +190,7 @@ export default function ColeccionDetailPage() {
     (sum, r) => sum + (r.entry.askingPriceUsd ?? 0) * r.alloc.quantity,
     0
   );
-  const legality = isDeck ? checkDeckLegality(rows, workSlots, fullSettings) : null;
+  const legality = isDeck ? checkDeckLegality(deckListRows, workSlots, fullSettings) : null;
   const displayedLegality =
     legality && refinedViolations
       ? { ...legality, regulationViolations: refinedViolations }
@@ -356,6 +376,7 @@ export default function ColeccionDetailPage() {
           <p className="text-ink-400 text-sm mt-1">
             {isDeck ? "Mazo" : "Binder"} ·{" "}
             {rows.reduce((s, r) => s + r.alloc.quantity, 0) +
+              usedLinks.reduce((sum, link) => sum + link.quantity, 0) +
               (isDeck ? workSlots.filter((w) => w.isGeneric).reduce((s, w) => s + w.quantity, 0) : 0)}{" "}
             cartas
             {isDeck &&
@@ -516,7 +537,7 @@ export default function ColeccionDetailPage() {
         <DeckLegalityPanel result={displayedLegality!} checkingReprints={checkingReprints} />
       )}
 
-      {isDeck && <DeckCompositionPanel rows={rows} workSlots={workSlots} />}
+      {isDeck && <DeckCompositionPanel rows={deckListRows} workSlots={workSlots} />}
 
       <div className="mt-6 flex flex-wrap items-center gap-2">
         <input
