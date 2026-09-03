@@ -1,8 +1,8 @@
 "use client";
 
 import { useState } from "react";
-import type { CollectionEntry, Allocation, WorkSlot, AppSettings } from "@/lib/storage";
-import { entryUnitValueUsd } from "@/lib/storage";
+import type { CollectionEntry, Allocation, WorkSlot, AppSettings, UsedElsewhereLink } from "@/lib/storage";
+import { entryUnitValueUsd, getCollectionEntry, getContainer } from "@/lib/storage";
 import { formatGtq, usdToGtq } from "@/lib/currency";
 import { buildTcgPlayerSearchUrl } from "@/lib/tcgdex";
 import CardImage from "./CardImage";
@@ -88,6 +88,7 @@ export default function DeckViewGrid({
   rows,
   energySlots,
   missingSlots,
+  usedLinks,
   exchangeRate,
   settings,
   isBinder,
@@ -95,13 +96,22 @@ export default function DeckViewGrid({
   rows: Row[];
   energySlots: WorkSlot[];
   missingSlots: WorkSlot[];
+  usedLinks: UsedElsewhereLink[];
   exchangeRate: number;
   settings: AppSettings;
   isBinder: boolean;
 }) {
   const gridClass = "grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4";
 
-  if (rows.length === 0 && energySlots.length === 0 && missingSlots.length === 0) {
+  const usedElsewhere = usedLinks
+    .map((link) => {
+      const entry = getCollectionEntry(link.collectionEntryId);
+      const holder = getContainer(link.holdingContainerId);
+      return entry ? { link, entry, holderName: holder?.name ?? "otro mazo/binder" } : null;
+    })
+    .filter((item): item is { link: UsedElsewhereLink; entry: CollectionEntry; holderName: string } => item !== null);
+
+  if (rows.length === 0 && energySlots.length === 0 && missingSlots.length === 0 && usedElsewhere.length === 0) {
     return <p className="text-ink-400 text-sm mt-3">Todavía no hay cartas aquí.</p>;
   }
 
@@ -145,6 +155,26 @@ export default function DeckViewGrid({
                 quantity={slot.quantity}
                 exchangeRate={exchangeRate}
                 clickable={!slot.isGeneric}
+              />
+            ))}
+          </div>
+        </div>
+      )}
+
+      {usedElsewhere.length > 0 && (
+        <div>
+          <h3 className="text-holo-cyan text-xs uppercase tracking-wide mb-3">Usadas en otro mazo/binder</h3>
+          <div className={gridClass}>
+            {usedElsewhere.map(({ link, entry, holderName }) => (
+              <ViewTile
+                key={link.id}
+                cardId={entry.cardId}
+                imageUrl={entry.imageUrl}
+                name={entry.cardName}
+                subtitle={`Está en ${holderName}`}
+                quantity={link.quantity}
+                exchangeRate={exchangeRate}
+                priceLine="La tienes · puedes moverla aquí"
               />
             ))}
           </div>

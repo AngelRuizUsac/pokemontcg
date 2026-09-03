@@ -695,10 +695,7 @@ export function refreshWorkSlots(deckId: string): { resolved: number } {
   for (const slot of getWorkSlotsForDeck(deckId)) {
     if (slot.isGeneric || slot.quantity <= 0) continue;
 
-    const owned =
-      slot.category === "Energy"
-        ? getCollection().filter((e) => e.cardName === slot.cardName)
-        : getCollection().filter((e) => e.cardId === slot.cardId);
+    const owned = getCollection().filter((entry) => workSlotMatchesEntry(slot, entry));
 
     let remaining = slot.quantity;
     for (const entry of owned) {
@@ -1129,12 +1126,17 @@ export function reorderDeckPriority(deckId: string, direction: "up" | "down") {
 // al de mayor prioridad (dejando en el de menor prioridad la referencia de
 // "usada en", para poder recuperarla después). Así el mazo principal queda
 // completo primero, y los de más abajo se quedan con lo que sobra.
-export function runDeckReajuste(): { movedCount: number } {
+export function runDeckReajuste(): { movedCount: number; linkedCount: number } {
   const decks = getContainers()
     .filter((c) => c.type === "deck")
     .sort((a, b) => a.priority - b.priority);
 
   let movedCount = 0;
+  let linkedCount = 0;
+
+  // Primero usa copias libres (y las de binders de utilidad) respetando el
+  // orden de relevancia, antes de tomar cartas de otros mazos.
+  for (const deck of decks) refreshWorkSlots(deck.id);
 
   for (const deck of decks) {
     const lowerDecks = decks.filter((d) => d.priority > deck.priority);
@@ -1193,7 +1195,47 @@ export function runDeckReajuste(): { movedCount: number } {
     }
   }
 
-  return { movedCount };
+  // Lo que todavía figure como faltante pero sí exista asignado en otro
+  // mazo/binder pasa a "usada en". Solo la demanda que realmente exceda las
+  // copias físicas queda en Cartas que faltan.
+  const allContainers = new Map(getContainers().map((container) => [container.id, container]));
+  for (const deck of decks) {
+    for (const slot of getWorkSlotsForDeck(deck.id).filter((item) => !item.isGeneric)) {
+      let remaining = slot.quantity;
+      const candidates = getAllocations().filter((allocation) => {
+        if (allocation.containerId === deck.id) return false;
+        const entry = getCollectionEntry(allocation.collectionEntryId);
+        return !!entry && workSlotMatchesEntry(slot, entry);
+      });
+
+      for (const allocation of candidates) {
+        if (remaining <= 0) break;
+        if (!allContainers.has(allocation.containerId)) continue;
+        const alreadyReserved = getUsedLinks()
+          .filter(
+            (link) =>
+              link.holdingContainerId === allocation.containerId &&
+              link.collectionEntryId === allocation.collectionEntryId
+          )
+          .reduce((sum, link) => sum + link.quantity, 0);
+        const availableToReference = Math.max(0, allocation.quantity - alreadyReserved);
+        const take = Math.min(remaining, availableToReference);
+        if (take <= 0) continue;
+        createUsedElsewhereLink(
+          deck.id,
+          allocation.containerId,
+          allocation.collectionEntryId,
+          take
+        );
+        remaining -= take;
+        linkedCount += take;
+      }
+
+      if (remaining !== slot.quantity) updateWorkSlot(slot.id, { quantity: remaining });
+    }
+  }
+
+  return { movedCount, linkedCount };
 }
 
 function workSlotMatchesEntry(slot: WorkSlot, entry: CollectionEntry): boolean {

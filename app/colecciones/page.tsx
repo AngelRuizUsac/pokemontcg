@@ -76,8 +76,8 @@ export default function ColeccionesPage() {
   function reajustar() {
     const result = runDeckReajuste();
     setReajusteMessage(
-      result.movedCount > 0
-        ? `Se movieron ${result.movedCount} carta(s) según la relevancia de los mazos.`
+      result.movedCount > 0 || result.linkedCount > 0
+        ? `Se movieron ${result.movedCount} carta(s) y ${result.linkedCount} quedaron identificadas como usadas en otro mazo/binder.`
         : "Los mazos ya están ajustados con las cartas disponibles."
     );
     load();
@@ -304,7 +304,7 @@ function ContainerTile({
   // el detalle del mazo — antes solo se sumaban las asignaciones reales.
   const energyUnits = isDeck
     ? getWorkSlotsForDeck(container.id)
-        .filter((w) => w.category === "Energy")
+        .filter((w) => w.isGeneric)
         .reduce((sum, w) => sum + w.quantity, 0)
     : 0;
   const totalUnits = allocations.reduce((sum, a) => sum + a.quantity, 0) + energyUnits;

@@ -194,11 +194,13 @@ export default function ColeccionDetailPage() {
       matchesCardTypeFilter(typeFilter, w.category, w.trainerType, w.energyType) &&
       (!term || w.cardName.toLowerCase().includes(term))
   );
-  // Las energías (genéricas o no) se muestran junto con las cartas del mazo
-  // y cuentan en el total de cartas; solo Pokémon/Trainer que faltan van en
-  // la sección de "cartas que faltan".
-  const energySlots = visibleWorkSlots.filter((w) => w.category === "Energy");
-  const missingSlots = visibleWorkSlots.filter((w) => w.category !== "Energy");
+  // Solo las energías básicas genéricas forman parte del mazo sin requerir
+  // una copia física. Las energías especiales (y cualquier impresión básica
+  // específica que no se posea) deben aparecer como cartas faltantes.
+  const energySlots = visibleWorkSlots.filter(
+    (w) => w.category === "Energy" && w.isGeneric
+  );
+  const missingSlots = visibleWorkSlots.filter((w) => !w.isGeneric);
 
   const deckGroups: DeckGroup[] = [];
   if (isDeck) {
@@ -306,7 +308,7 @@ export default function ColeccionDetailPage() {
           quantity: r.alloc.quantity,
           askingPriceUsd: r.entry.askingPriceUsd,
         })),
-        missing: workSlots.filter((w) => w.category !== "Energy").map((w) => ({ cardId: w.cardId, quantity: w.quantity })),
+        missing: workSlots.filter((w) => !w.isGeneric).map((w) => ({ cardId: w.cardId, quantity: w.quantity })),
       })
     );
   }
@@ -354,10 +356,10 @@ export default function ColeccionDetailPage() {
           <p className="text-ink-400 text-sm mt-1">
             {isDeck ? "Mazo" : "Binder"} ·{" "}
             {rows.reduce((s, r) => s + r.alloc.quantity, 0) +
-              (isDeck ? workSlots.filter((w) => w.category === "Energy").reduce((s, w) => s + w.quantity, 0) : 0)}{" "}
+              (isDeck ? workSlots.filter((w) => w.isGeneric).reduce((s, w) => s + w.quantity, 0) : 0)}{" "}
             cartas
             {isDeck &&
-              ` · ${workSlots.filter((w) => w.category !== "Energy").reduce((s, w) => s + w.quantity, 0)} faltantes` +
+              ` · ${workSlots.filter((w) => !w.isGeneric).reduce((s, w) => s + w.quantity, 0)} faltantes` +
                 (usedLinks.length > 0
                   ? ` · ${usedLinks.reduce((s, l) => s + l.quantity, 0)} usadas en otro lado`
                   : "")}
@@ -572,6 +574,7 @@ export default function ColeccionDetailPage() {
             rows={visibleRows}
             energySlots={energySlots}
             missingSlots={missingSlots}
+            usedLinks={usedLinks}
             exchangeRate={exchangeRate}
             settings={fullSettings}
             isBinder={!isDeck}
