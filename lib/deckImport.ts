@@ -28,7 +28,10 @@ export async function matchDeckListLines(
   const setCache = new Map<string, Awaited<ReturnType<typeof getSetWithCards>>>();
 
   for (const line of lines) {
-    if (line.section === "Energy") {
+    // Limitless puede omitir expansión y número en Trainers/Energy porque
+    // esas cartas se validan por nombre. En ese caso se busca por nombre y
+    // se conserva una impresión real de TCGdex para la importación local.
+    if (line.section === "Energy" || (line.section === "Trainer" && (!line.setCode || !line.number))) {
       try {
         const briefs = await searchCards(line.name);
         if (briefs.length === 0) {

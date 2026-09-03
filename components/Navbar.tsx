@@ -10,6 +10,7 @@ const links = [
   { href: "/compras/", label: "Lista de compra" },
   { href: "/ventas/", label: "Ventas" },
   { href: "/buscar/", label: "Buscar cartas" },
+  { href: "/metajuego/", label: "Metajuego" },
   { href: "/estadisticas/", label: "Estadísticas" },
   { href: "/ajustes/", label: "Ajustes" },
 ];
