@@ -13,6 +13,7 @@ import { resolveMarketPriceUsd } from "@/lib/types";
 import type { PokemonCard } from "@/lib/types";
 import { CARD_TYPE_OPTIONS, matchesCardTypeFilter } from "@/lib/cardTypeFilter";
 import { GENERIC_BASIC_ENERGIES } from "@/lib/genericEnergy";
+import { computeEffectSignature } from "@/lib/reprints";
 import CardImage from "./CardImage";
 
 export default function AddCardDialog({
@@ -95,6 +96,7 @@ export default function AddCardDialog({
       quantity: qty,
       priceUsd: resolveMarketPriceUsd(card),
       isGeneric: false,
+      effectSignature: computeEffectSignature(card),
     });
     onAdded();
   }
@@ -117,6 +119,7 @@ export default function AddCardDialog({
       quantity: qty,
       priceUsd: 0,
       isGeneric: true,
+      effectSignature: null,
     });
     onAdded();
   }

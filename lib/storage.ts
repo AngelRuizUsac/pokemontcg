@@ -75,6 +75,9 @@ export interface Container {
   // en un mazo (al agregarlas, al usar "Actualizar", etc.) — la copia se
   // mueve del binder al mazo en ese momento, no se duplica.
   utilityForDecks: boolean;
+  // Solo aplica a mazos: prioridad para "Reajustar" — número más bajo =
+  // más arriba en la lista = más prioridad para tener sus cartas completas.
+  priority: number;
   createdAt: string;
 }
 
@@ -106,6 +109,7 @@ export interface WorkSlot {
   quantity: number;
   priceUsd: number | null;
   isGeneric: boolean; // energía básica genérica: no cuenta como "falta comprar"
+  effectSignature: string | null;
 }
 
 const COLLECTION_KEY = "pokedex-tcg:collection";
@@ -340,7 +344,11 @@ export function updateSettings(patch: Partial<AppSettings>) {
 // ---------------------------------------------------------------------------
 
 export function getContainers(): Container[] {
-  return readJson<Container[]>(CONTAINERS_KEY, []);
+  return readJson<Container[]>(CONTAINERS_KEY, []).map((container, index) => ({
+    ...container,
+    // Compatibilidad con datos creados antes de que existiera la relevancia.
+    priority: Number.isFinite(container.priority) ? container.priority : index,
+  }));
 }
 
 function saveContainers(containers: Container[]) {
@@ -478,6 +486,13 @@ export function allocateToContainer(
       const take = Math.min(source.quantity, stillNeeded);
       stillNeeded -= take;
       const remaining = source.quantity - take;
+      recordMove(
+        getCollectionEntry(collectionEntryId)?.cardName ?? "carta",
+        take,
+        source.containerId,
+        containerId,
+        "manual"
+      );
       next =
         remaining > 0
           ? next.map((a) => (a.id === source.id ? { ...a, quantity: remaining } : a))
@@ -563,6 +578,7 @@ export function releaseDeckToWorkSlots(deckId: string): { released: number } {
       quantity: alloc.quantity,
       priceUsd: entry.priceUsd,
       isGeneric: false,
+      effectSignature: entry.effectSignature,
     });
     released += alloc.quantity;
   }
@@ -579,34 +595,18 @@ export function moveAllocation(
   toContainerId: string,
   quantity: number
 ): { ok: boolean; reason?: string } {
-  const allocations = getAllocations();
-  const source = allocations.find((a) => a.id === allocationId);
+  const source = getAllocations().find((a) => a.id === allocationId);
   if (!source) return { ok: false, reason: "No se encontró la asignación." };
   if (quantity <= 0 || quantity > source.quantity) {
     return { ok: false, reason: "Cantidad inválida." };
   }
-
-  const remaining = source.quantity - quantity;
-  const next = remaining > 0
-    ? allocations.map((a) => (a.id === allocationId ? { ...a, quantity: remaining } : a))
-    : allocations.filter((a) => a.id !== allocationId);
-
-  const dest = next.find(
-    (a) => a.containerId === toContainerId && a.collectionEntryId === source.collectionEntryId
+  return transferAllocation(
+    source.containerId,
+    toContainerId,
+    source.collectionEntryId,
+    quantity,
+    "manual"
   );
-  if (dest) {
-    dest.quantity += quantity;
-  } else {
-    next.push({
-      id: generateId(),
-      containerId: toContainerId,
-      collectionEntryId: source.collectionEntryId,
-      quantity,
-    });
-  }
-
-  saveAllocations(next);
-  return { ok: true };
 }
 
 // ---------------------------------------------------------------------------
@@ -870,13 +870,145 @@ export function sellFromBinder(
 }
 
 // ---------------------------------------------------------------------------
+// Registro de movimientos: qué carta se movió, de qué mazo/binder a cuál.
+// ---------------------------------------------------------------------------
+
+export interface MoveLogEntry {
+  id: string;
+  cardName: string;
+  quantity: number;
+  fromContainerName: string;
+  toContainerName: string;
+  reason: "manual" | "reajuste"; // "Mover aquí" a mano, o el botón "Reajustar"
+  movedAt: string;
+}
+
+const MOVE_LOG_KEY = "pokedex-tcg:movelog";
+const MAX_MOVE_LOG = 200;
+
+export function getMoveLog(): MoveLogEntry[] {
+  return readJson<MoveLogEntry[]>(MOVE_LOG_KEY, []);
+}
+
+function recordMove(
+  cardName: string,
+  quantity: number,
+  fromContainerId: string,
+  toContainerId: string,
+  reason: MoveLogEntry["reason"]
+) {
+  const entry: MoveLogEntry = {
+    id: generateId(),
+    cardName,
+    quantity,
+    fromContainerName: getContainer(fromContainerId)?.name ?? "(borrado)",
+    toContainerName: getContainer(toContainerId)?.name ?? "(borrado)",
+    reason,
+    movedAt: new Date().toISOString(),
+  };
+  writeJson(MOVE_LOG_KEY, [entry, ...getMoveLog()].slice(0, MAX_MOVE_LOG));
+}
+
+export function clearMoveLog() {
+  writeJson(MOVE_LOG_KEY, []);
+}
+
+// Transfiere N copias de una entrada de un contenedor a otro. Si el que la
+// tenía es un MAZO, deja el vínculo recíproco de "usada en" (para poder
+// regresarla). Si es un BINDER, no — ahí simplemente desaparece de origen,
+// como un movimiento normal (los binders no tienen "cartas que faltan").
+function transferAllocation(
+  fromContainerId: string,
+  toContainerId: string,
+  collectionEntryId: string,
+  quantity: number,
+  reason: MoveLogEntry["reason"]
+): { ok: boolean; reason?: string } {
+  const allocations = getAllocations();
+  const source = allocations.find(
+    (a) => a.containerId === fromContainerId && a.collectionEntryId === collectionEntryId
+  );
+  if (!source || source.quantity < quantity) {
+    return { ok: false, reason: "Esa carta ya no está disponible ahí." };
+  }
+
+  const remaining = source.quantity - quantity;
+  let next = remaining > 0
+    ? allocations.map((a) => (a.id === source.id ? { ...a, quantity: remaining } : a))
+    : allocations.filter((a) => a.id !== source.id);
+
+  const destExisting = next.find(
+    (a) => a.containerId === toContainerId && a.collectionEntryId === collectionEntryId
+  );
+  next = destExisting
+    ? next.map((a) => (a.id === destExisting.id ? { ...a, quantity: a.quantity + quantity } : a))
+    : [...next, { id: generateId(), containerId: toContainerId, collectionEntryId, quantity }];
+
+  saveAllocations(next);
+
+  let linksToSatisfy = quantity;
+  const reconciledLinks: UsedElsewhereLink[] = [];
+  for (const link of getUsedLinks()) {
+    const isSatisfied =
+      linksToSatisfy > 0 &&
+      link.requestingContainerId === toContainerId &&
+      link.holdingContainerId === fromContainerId &&
+      link.collectionEntryId === collectionEntryId;
+    if (!isSatisfied) {
+      reconciledLinks.push(link);
+      continue;
+    }
+    const consumed = Math.min(link.quantity, linksToSatisfy);
+    linksToSatisfy -= consumed;
+    if (link.quantity > consumed) {
+      reconciledLinks.push({ ...link, quantity: link.quantity - consumed });
+    }
+  }
+  saveUsedLinks(reconciledLinks);
+
+  const destination = getContainer(toContainerId);
+  const movedEntry = getCollectionEntry(collectionEntryId);
+  if (destination?.type === "deck" && movedEntry) {
+    let quantityToResolve = quantity;
+    const nextSlots: WorkSlot[] = [];
+    for (const slot of getWorkSlots()) {
+      if (
+        quantityToResolve <= 0 ||
+        slot.deckId !== toContainerId ||
+        slot.isGeneric ||
+        !workSlotMatchesEntry(slot, movedEntry)
+      ) {
+        nextSlots.push(slot);
+        continue;
+      }
+      const resolved = Math.min(slot.quantity, quantityToResolve);
+      quantityToResolve -= resolved;
+      if (slot.quantity > resolved) {
+        nextSlots.push({ ...slot, quantity: slot.quantity - resolved });
+      }
+    }
+    saveWorkSlots(nextSlots);
+  }
+
+  const fromContainer = getContainer(fromContainerId);
+  if (fromContainer?.type === "deck") {
+    createUsedElsewhereLink(fromContainerId, toContainerId, collectionEntryId, quantity);
+  }
+
+  recordMove(movedEntry?.cardName ?? "carta", quantity, fromContainerId, toContainerId, reason);
+
+  return { ok: true };
+}
+
+// ---------------------------------------------------------------------------
 // "Usada en otro mazo/binder": cuando una carta que necesitas en un mazo ya
 // la tienes, pero está comprometida en otro binder/mazo (no libre), en vez
 // de registrarla como "falta comprar" se deja un vínculo — aparece marcada
 // como "usada en <el otro>" con la opción "Mover aquí". Al moverla, el
-// espacio en el otro mazo/binder NO se borra: se convierte en el vínculo
-// recíproco (ahora ESE lado la pide de vuelta, con su propio "Mover aquí"),
-// así siempre se puede regresar sin perder el lugar.
+// espacio en el otro mazo NO se borra (solo si el otro es un mazo — los
+// binders no guardan referencia, ahí sí desaparece): se convierte en el
+// vínculo recíproco (ahora ESE lado la pide de vuelta, con su propio "Mover
+// aquí"), así siempre se puede regresar sin perder el lugar.
 // ---------------------------------------------------------------------------
 
 export interface UsedElsewhereLink {
@@ -912,6 +1044,18 @@ export function createUsedElsewhereLink(
   collectionEntryId: string,
   quantity: number
 ): UsedElsewhereLink {
+  const links = getUsedLinks();
+  const existing = links.find(
+    (link) =>
+      link.requestingContainerId === requestingContainerId &&
+      link.holdingContainerId === holdingContainerId &&
+      link.collectionEntryId === collectionEntryId
+  );
+  if (existing) {
+    const updated = { ...existing, quantity: existing.quantity + quantity };
+    saveUsedLinks(links.map((link) => (link.id === existing.id ? updated : link)));
+    return updated;
+  }
   const link: UsedElsewhereLink = {
     id: generateId(),
     requestingContainerId,
@@ -920,7 +1064,7 @@ export function createUsedElsewhereLink(
     quantity,
     createdAt: new Date().toISOString(),
   };
-  saveUsedLinks([link, ...getUsedLinks()]);
+  saveUsedLinks([link, ...links]);
   return link;
 }
 
@@ -937,47 +1081,126 @@ export function fulfillUsedElsewhereLink(
   const link = getUsedLinks().find((l) => l.id === linkId);
   if (!link) return { ok: false, reason: "No se encontró la referencia." };
 
-  const allocations = getAllocations();
-  const source = allocations.find(
-    (a) =>
-      a.containerId === link.holdingContainerId && a.collectionEntryId === link.collectionEntryId
-  );
-  if (!source || source.quantity < link.quantity) {
-    saveUsedLinks(getUsedLinks().filter((l) => l.id !== linkId));
-    return { ok: false, reason: "Esa carta ya no está disponible ahí — se quitó la referencia." };
-  }
-
-  const remaining = source.quantity - link.quantity;
-  let next = remaining > 0
-    ? allocations.map((a) => (a.id === source.id ? { ...a, quantity: remaining } : a))
-    : allocations.filter((a) => a.id !== source.id);
-
-  const destExisting = next.find(
-    (a) =>
-      a.containerId === link.requestingContainerId && a.collectionEntryId === link.collectionEntryId
-  );
-  if (destExisting) {
-    next = next.map((a) =>
-      a.id === destExisting.id ? { ...a, quantity: a.quantity + link.quantity } : a
-    );
-  } else {
-    next.push({
-      id: generateId(),
-      containerId: link.requestingContainerId,
-      collectionEntryId: link.collectionEntryId,
-      quantity: link.quantity,
-    });
-  }
-  saveAllocations(next);
-
-  // borra este vínculo y crea el recíproco: ahora el que la tenía la pide de vuelta
+  // se borra este vínculo primero: transferAllocation crea uno nuevo si el
+  // que tenía la carta es un mazo (el recíproco), o ninguno si es un binder.
   saveUsedLinks(getUsedLinks().filter((l) => l.id !== linkId));
-  createUsedElsewhereLink(
+
+  const result = transferAllocation(
     link.holdingContainerId,
     link.requestingContainerId,
     link.collectionEntryId,
-    link.quantity
+    link.quantity,
+    "manual"
   );
+  if (!result.ok) {
+    return { ok: false, reason: result.reason ?? "Esa carta ya no está disponible ahí — se quitó la referencia." };
+  }
 
   return { ok: true };
+}
+
+// ---------------------------------------------------------------------------
+// Prioridad de mazos y "Reajustar"
+// ---------------------------------------------------------------------------
+
+// Sube o baja un mazo un lugar en la lista de prioridad.
+export function reorderDeckPriority(deckId: string, direction: "up" | "down") {
+  const decks = getContainers()
+    .filter((c) => c.type === "deck")
+    .sort((a, b) => a.priority - b.priority);
+  const idx = decks.findIndex((d) => d.id === deckId);
+  const swapIdx = direction === "up" ? idx - 1 : idx + 1;
+  if (idx === -1 || swapIdx < 0 || swapIdx >= decks.length) return;
+
+  [decks[idx], decks[swapIdx]] = [decks[swapIdx], decks[idx]];
+  const order = new Map(decks.map((deck, index) => [deck.id, index]));
+  saveContainers(
+    getContainers().map((container) =>
+      container.type === "deck"
+        ? { ...container, priority: order.get(container.id) ?? container.priority }
+        : container
+    )
+  );
+}
+
+// "Reajustar": recorre los mazos en orden de prioridad (los de más arriba
+// primero) y, por cada carta que le falte a un mazo, revisa si algún mazo
+// de MENOR prioridad ya la tiene — si es así, se la quita a ese y se la da
+// al de mayor prioridad (dejando en el de menor prioridad la referencia de
+// "usada en", para poder recuperarla después). Así el mazo principal queda
+// completo primero, y los de más abajo se quedan con lo que sobra.
+export function runDeckReajuste(): { movedCount: number } {
+  const decks = getContainers()
+    .filter((c) => c.type === "deck")
+    .sort((a, b) => a.priority - b.priority);
+
+  let movedCount = 0;
+
+  for (const deck of decks) {
+    const lowerDecks = decks.filter((d) => d.priority > deck.priority);
+
+    // Primero atiende referencias existentes de “usada en” cuando la copia
+    // está en un mazo de menor relevancia.
+    for (const link of getUsedLinksRequestedBy(deck.id)) {
+      if (!lowerDecks.some((lower) => lower.id === link.holdingContainerId)) continue;
+      const source = getAllocations().find(
+        (allocation) =>
+          allocation.containerId === link.holdingContainerId &&
+          allocation.collectionEntryId === link.collectionEntryId
+      );
+      const take = Math.min(link.quantity, source?.quantity ?? 0);
+      if (take <= 0) {
+        saveUsedLinks(getUsedLinks().filter((item) => item.id !== link.id));
+        continue;
+      }
+      const result = transferAllocation(
+        link.holdingContainerId,
+        deck.id,
+        link.collectionEntryId,
+        take,
+        "reajuste"
+      );
+      if (result.ok) {
+        movedCount += take;
+      }
+    }
+
+    const slots = getWorkSlotsForDeck(deck.id).filter((w) => !w.isGeneric);
+
+    for (const slot of slots) {
+      let remaining = slot.quantity;
+      if (remaining <= 0) continue;
+
+      for (const lowerDeck of lowerDecks) {
+        if (remaining <= 0) break;
+        const allocs = getAllocationsForContainer(lowerDeck.id);
+        for (const alloc of allocs) {
+          if (remaining <= 0) break;
+          const entry = getCollectionEntry(alloc.collectionEntryId);
+          if (!entry) continue;
+          if (!workSlotMatchesEntry(slot, entry)) continue;
+
+          const take = Math.min(alloc.quantity, remaining);
+          if (take <= 0) continue;
+          const result = transferAllocation(lowerDeck.id, deck.id, entry.id, take, "reajuste");
+          if (result.ok) {
+            remaining -= take;
+            movedCount += take;
+          }
+        }
+      }
+
+    }
+  }
+
+  return { movedCount };
+}
+
+function workSlotMatchesEntry(slot: WorkSlot, entry: CollectionEntry): boolean {
+  if (slot.category !== entry.category || slot.cardName !== entry.cardName) return false;
+  if (slot.category !== "Pokemon") return true;
+  return (
+    slot.cardId === entry.cardId ||
+    (!!slot.effectSignature && slot.effectSignature === entry.effectSignature)
+  );
 }

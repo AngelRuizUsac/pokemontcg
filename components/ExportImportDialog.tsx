@@ -17,6 +17,7 @@ import { resolveMarketPriceUsd } from "@/lib/types";
 import { cardImageUrl, resolveSetCode } from "@/lib/tcgdex";
 import { downloadJson } from "@/lib/exportImport";
 import { GENERIC_BASIC_ENERGIES } from "@/lib/genericEnergy";
+import { computeEffectSignature } from "@/lib/reprints";
 
 interface Row {
   entry: CollectionEntry;
@@ -152,6 +153,7 @@ export default function ExportImportDialog({
           quantity: line.quantity,
           priceUsd: 0,
           isGeneric: true,
+          effectSignature: null,
         });
         genericAdded += line.quantity;
       }
@@ -218,6 +220,7 @@ export default function ExportImportDialog({
             quantity: remaining,
             priceUsd: resolveMarketPriceUsd(card),
             isGeneric: false,
+            effectSignature: computeEffectSignature(card),
           });
           queuedAsWork += remaining;
         }

@@ -8,6 +8,8 @@ import {
   getContainers,
   getAllocations,
   getWorkSlots,
+  getUsedLinks,
+  getMoveLog,
   entryUnitValueUsd,
   entryValueUsd,
 } from "./storage";
@@ -17,6 +19,8 @@ import type {
   Container,
   Allocation,
   WorkSlot,
+  UsedElsewhereLink,
+  MoveLogEntry,
 } from "./storage";
 
 export interface FullBackup {
@@ -27,6 +31,8 @@ export interface FullBackup {
   containers: Container[];
   allocations: Allocation[];
   workSlots: WorkSlot[];
+  usedLinks?: UsedElsewhereLink[];
+  moveLog?: MoveLogEntry[];
 }
 
 export function buildFullBackup(): FullBackup {
@@ -38,6 +44,8 @@ export function buildFullBackup(): FullBackup {
     containers: getContainers(),
     allocations: getAllocations(),
     workSlots: getWorkSlots(),
+    usedLinks: getUsedLinks(),
+    moveLog: getMoveLog(),
   };
 }
 
@@ -83,6 +91,14 @@ export function restoreFullBackup(backup: FullBackup) {
   window.localStorage.setItem(
     "pokedex-tcg:workslots",
     JSON.stringify(backup.workSlots)
+  );
+  window.localStorage.setItem(
+    "pokedex-tcg:usedlinks",
+    JSON.stringify(backup.usedLinks ?? [])
+  );
+  window.localStorage.setItem(
+    "pokedex-tcg:movelog",
+    JSON.stringify(backup.moveLog ?? [])
   );
 }
 
