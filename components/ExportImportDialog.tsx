@@ -2,13 +2,21 @@
 
 import { useState } from "react";
 import type { Container, Allocation, WorkSlot, CollectionEntry } from "@/lib/storage";
-import { getCollection, getAvailableQuantity, allocateToContainer, addWorkSlot } from "@/lib/storage";
+import {
+  getCollection,
+  getAvailableQuantity,
+  allocateToContainer,
+  addWorkSlot,
+  getAllocations,
+  createUsedElsewhereLink,
+} from "@/lib/storage";
 import { generateDeckListText, parseDeckListText } from "@/lib/pokemonLiveFormat";
 import type { DeckSection } from "@/lib/pokemonLiveFormat";
 import { matchDeckListLines } from "@/lib/deckImport";
 import { resolveMarketPriceUsd } from "@/lib/types";
 import { cardImageUrl, resolveSetCode } from "@/lib/tcgdex";
 import { downloadJson } from "@/lib/exportImport";
+import { GENERIC_BASIC_ENERGIES } from "@/lib/genericEnergy";
 
 interface Row {
   entry: CollectionEntry;
@@ -110,18 +118,58 @@ export default function ExportImportDialog({
     setResult(null);
     try {
       const { lines, unrecognized } = parseDeckListText(importText);
-      const { matched, unmatched } = await matchDeckListLines(lines);
+
+      // Las energías básicas (Grass/Fire/Water/…) se registran directo como
+      // genéricas — no importa qué expansión traía la línea, cualquier
+      // energía básica sirve igual y no cuenta como "falta comprar". Las
+      // energías especiales sí son cartas puntuales, así que siguen el
+      // proceso normal de búsqueda/emparejamiento.
+      const basicEnergyLines = lines.filter(
+        (l) =>
+          l.section === "Energy" &&
+          GENERIC_BASIC_ENERGIES.some((g) => g.name.toLowerCase() === l.name.trim().toLowerCase())
+      );
+      const otherLines = lines.filter((l) => !basicEnergyLines.includes(l));
+
+      let genericAdded = 0;
+      for (const line of basicEnergyLines) {
+        const generic = GENERIC_BASIC_ENERGIES.find(
+          (g) => g.name.toLowerCase() === line.name.trim().toLowerCase()
+        )!;
+        addWorkSlot({
+          deckId: container.id,
+          cardId: generic.id,
+          cardName: generic.name,
+          category: "Energy",
+          trainerType: null,
+          energyType: "Basic",
+          setId: "",
+          setName: "Energía básica genérica",
+          setAbbreviation: null,
+          number: "",
+          regulationMark: null,
+          imageUrl: "",
+          quantity: line.quantity,
+          priceUsd: 0,
+          isGeneric: true,
+        });
+        genericAdded += line.quantity;
+      }
+
+      const { matched, unmatched } = await matchDeckListLines(otherLines);
 
       let allocated = 0;
+      let usedElsewhere = 0;
       let queuedAsWork = 0;
 
       for (const { line, card } of matched) {
-        const owned = getCollection().filter(
-          (e) =>
-            (card.category === "Energy" ? e.cardName === card.name : e.cardId === card.id) &&
-            getAvailableQuantity(e.id) > 0
-        );
+        const matchesCard = (e: CollectionEntry) =>
+          card.category === "Energy" ? e.cardName === card.name : e.cardId === card.id;
+
         let remaining = line.quantity;
+
+        // 1) primero, copias ya disponibles (incluye binders "de utilidad")
+        const owned = getCollection().filter((e) => matchesCard(e) && getAvailableQuantity(e.id) > 0);
         for (const entry of owned) {
           if (remaining <= 0) break;
           const available = getAvailableQuantity(entry.id);
@@ -132,12 +180,28 @@ export default function ExportImportDialog({
             remaining -= take;
           }
         }
+
+        // 2) si falta, busca si ya la tienes pero está en otro binder/mazo —
+        // en vez de marcarla como "falta comprar", se deja un vínculo con
+        // opción de "Mover aquí" (no borra el espacio en el otro lado).
         if (remaining > 0) {
-          // Siempre se registra lo que falta, sin importar si el modo
-          // trabajo está activo — así nada se pierde al importar, y más
-          // adelante puede asignarse con "Ya la conseguí" si aparece en tu
-          // colección. El modo trabajo solo controla si puedes buscar y
-          // agregar manualmente cartas que no tienes desde este mazo.
+          const ownedEntryIds = new Set(getCollection().filter(matchesCard).map((e) => e.id));
+          const elsewhere = getAllocations().filter(
+            (a) => ownedEntryIds.has(a.collectionEntryId) && a.containerId !== container.id
+          );
+          for (const alloc of elsewhere) {
+            if (remaining <= 0) break;
+            const take = Math.min(alloc.quantity, remaining);
+            if (take > 0) {
+              createUsedElsewhereLink(container.id, alloc.containerId, alloc.collectionEntryId, take);
+              usedElsewhere += take;
+              remaining -= take;
+            }
+          }
+        }
+
+        // 3) lo que siga faltando, sí es una compra pendiente real
+        if (remaining > 0) {
           addWorkSlot({
             deckId: container.id,
             cardId: card.id,
@@ -160,7 +224,8 @@ export default function ExportImportDialog({
       }
 
       setResult(
-        `${allocated} copias asignadas desde tu colección · ${queuedAsWork} agregadas a "cartas que faltan" · ` +
+        `${allocated} copias asignadas · ${genericAdded} energías básicas genéricas · ` +
+          `${usedElsewhere} marcadas como "usadas en otro mazo/binder" · ${queuedAsWork} agregadas a "cartas que faltan" · ` +
           `${unmatched.length + unrecognized.length} línea(s) sin coincidencia.`
       );
       onImported();
@@ -266,8 +331,9 @@ export default function ExportImportDialog({
               <>
                 <p className="text-ink-400 text-xs mb-2">
                   Pega una lista en formato Pokémon TCG Live. Las cartas que ya tienes disponibles se
-                  asignan a este mazo; el resto se agrega a "cartas que faltan" si el modo trabajo está
-                  activo.
+                  asignan a este mazo; las energías básicas se registran como genéricas sin importar
+                  la expansión; si una carta ya la tienes pero está en otro binder/mazo, se marca
+                  como "usada ahí" con la opción de moverla; el resto se agrega a "cartas que faltan".
                 </p>
                 <textarea
                   value={importText}

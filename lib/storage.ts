@@ -70,6 +70,11 @@ export interface Container {
   name: string;
   image: ContainerImage;
   workMode: boolean; // solo aplica a mazos
+  // Solo aplica a binders: si está activo, las cartas asignadas a este
+  // binder siguen contando como "disponibles" y pueden usarse automáticamente
+  // en un mazo (al agregarlas, al usar "Actualizar", etc.) — la copia se
+  // mueve del binder al mazo en ese momento, no se duplica.
+  utilityForDecks: boolean;
   createdAt: string;
 }
 
@@ -217,6 +222,7 @@ export function removeCollectionEntry(id: string) {
   saveCollection(getCollection().filter((entry) => entry.id !== id));
   // limpia también cualquier asignación huérfana en binders/mazos
   saveAllocations(getAllocations().filter((a) => a.collectionEntryId !== id));
+  saveUsedLinks(getUsedLinks().filter((l) => l.collectionEntryId !== id));
 }
 
 // Precio unitario (en GTQ) de una entrada, usado para decidir si es "bulk".
@@ -367,6 +373,9 @@ export function removeContainer(id: string) {
   saveContainers(getContainers().filter((c) => c.id !== id));
   saveAllocations(getAllocations().filter((a) => a.containerId !== id));
   saveWorkSlots(getWorkSlots().filter((w) => w.deckId !== id));
+  saveUsedLinks(
+    getUsedLinks().filter((l) => l.requestingContainerId !== id && l.holdingContainerId !== id)
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -397,10 +406,23 @@ export function getAllocatedQuantity(collectionEntryId: string): number {
 }
 
 // Cuántas copias de una entrada siguen SIN asignar a ningún binder/mazo.
+// Cuánto de una entrada está comprometido "en firme" — mazos y binders
+// normales, sin contar los binders marcados como "de utilidad" (esas copias
+// siguen contando como disponibles, ver getAvailableQuantity).
+export function getHardAllocatedQuantity(collectionEntryId: string): number {
+  return getAllocationsForEntry(collectionEntryId).reduce((sum, a) => {
+    const container = getContainer(a.containerId);
+    const isUtilityBinder = container?.type === "binder" && container.utilityForDecks;
+    return isUtilityBinder ? sum : sum + a.quantity;
+  }, 0);
+}
+
+// Cuánto de una entrada sigue SIN asignar a ningún binder/mazo firme — las
+// copias que están en un binder "de utilidad" cuentan como disponibles.
 export function getAvailableQuantity(collectionEntryId: string): number {
   const entry = getCollectionEntry(collectionEntryId);
   if (!entry) return 0;
-  return Math.max(0, entry.quantity - getAllocatedQuantity(collectionEntryId));
+  return Math.max(0, entry.quantity - getHardAllocatedQuantity(collectionEntryId));
 }
 
 // En qué binders/mazos está asignada una entrada de la colección, y cuánto
@@ -424,12 +446,44 @@ export function allocateToContainer(
   quantity: number
 ): { ok: boolean; reason?: string } {
   if (quantity <= 0) return { ok: false, reason: "Cantidad inválida." };
-  const available = getAvailableQuantity(collectionEntryId);
+  const available = getAvailableQuantity(collectionEntryId); // incluye binders de utilidad
   if (quantity > available) {
     return {
       ok: false,
       reason: `Solo tienes ${available} copia(s) sin asignar de esta carta.`,
     };
+  }
+
+  // Si lo que pediste no alcanza a cubrirse con copias 100% libres, el resto
+  // se "recupera" de binders de utilidad (se les resta ahí) antes de
+  // comprometerlo en el destino — una carta física no puede estar en dos
+  // lugares a la vez.
+  const trulyFree = Math.max(
+    0,
+    (getCollectionEntry(collectionEntryId)?.quantity ?? 0) -
+      getAllocatedQuantity(collectionEntryId)
+  );
+  let stillNeeded = quantity - trulyFree;
+
+  if (stillNeeded > 0) {
+    const allocations = getAllocations();
+    const utilitySources = allocations.filter((a) => {
+      if (a.collectionEntryId !== collectionEntryId) return false;
+      const c = getContainer(a.containerId);
+      return c?.type === "binder" && c.utilityForDecks;
+    });
+    let next = allocations;
+    for (const source of utilitySources) {
+      if (stillNeeded <= 0) break;
+      const take = Math.min(source.quantity, stillNeeded);
+      stillNeeded -= take;
+      const remaining = source.quantity - take;
+      next =
+        remaining > 0
+          ? next.map((a) => (a.id === source.id ? { ...a, quantity: remaining } : a))
+          : next.filter((a) => a.id !== source.id);
+    }
+    saveAllocations(next);
   }
 
   const allocations = getAllocations();
@@ -477,6 +531,44 @@ export function releaseContainerAllocations(containerId: string): { released: nu
   const toRelease = allocations.filter((a) => a.containerId === containerId);
   const released = toRelease.reduce((sum, a) => sum + a.quantity, 0);
   saveAllocations(allocations.filter((a) => a.containerId !== containerId));
+  return { released };
+}
+
+// "Limpiar mazo": libera las cartas asignadas (las copias físicas vuelven a
+// estar disponibles para usarse en otro lado) pero el mazo NO se queda vacío
+// de memoria — cada carta que tenía pasa a "cartas que faltan" (modo
+// trabajo) con la misma cantidad, así conserva su lista/receta completa
+// para poder rearmarlo después con otras copias. Solo tiene sentido en
+// mazos (los binders no tienen concepto de "cartas que faltan").
+export function releaseDeckToWorkSlots(deckId: string): { released: number } {
+  const allocations = getAllocations().filter((a) => a.containerId === deckId);
+  let released = 0;
+
+  for (const alloc of allocations) {
+    const entry = getCollectionEntry(alloc.collectionEntryId);
+    if (!entry) continue;
+    addWorkSlot({
+      deckId,
+      cardId: entry.cardId,
+      cardName: entry.cardName,
+      category: entry.category,
+      trainerType: entry.trainerType,
+      energyType: entry.energyType,
+      setId: entry.setId,
+      setName: entry.setName,
+      setAbbreviation: entry.setAbbreviation,
+      number: entry.number,
+      regulationMark: entry.regulationMark,
+      imageUrl: entry.imageUrl,
+      quantity: alloc.quantity,
+      priceUsd: entry.priceUsd,
+      isGeneric: false,
+    });
+    released += alloc.quantity;
+  }
+
+  saveAllocations(getAllocations().filter((a) => a.containerId !== deckId));
+  updateContainer(deckId, { workMode: true });
   return { released };
 }
 
@@ -684,4 +776,208 @@ export function removeWishlistItem(id: string) {
 
 export function isInWishlist(cardId: string): boolean {
   return getWishlist().some((i) => i.cardId === cardId);
+}
+
+// ---------------------------------------------------------------------------
+// Registro de ventas (binders) — "un registro en vez de una memoria": queda
+// constancia de qué vendiste, cuándo y a qué precio, en vez de tener que
+// acordarte o llevarlo en un chat aparte.
+// ---------------------------------------------------------------------------
+
+export interface SaleRecord {
+  id: string;
+  cardId: string;
+  cardName: string;
+  setName: string;
+  number: string;
+  imageUrl: string;
+  quantity: number;
+  priceUsd: number; // precio real al que se vendió (por copia)
+  buyerNote: string | null;
+  soldAt: string;
+}
+
+const SALES_KEY = "pokedex-tcg:sales";
+
+export function getSales(): SaleRecord[] {
+  return readJson<SaleRecord[]>(SALES_KEY, []);
+}
+
+function saveSales(sales: SaleRecord[]) {
+  writeJson(SALES_KEY, sales);
+}
+
+export function removeSaleRecord(id: string) {
+  saveSales(getSales().filter((s) => s.id !== id));
+}
+
+// Vende N copias de una entrada desde un binder puntual: le baja la cantidad
+// a la entrada (y la borra si llega a 0), quita esa cantidad de la
+// asignación de ese binder, y deja un renglón en el registro de ventas.
+export function sellFromBinder(
+  binderId: string,
+  collectionEntryId: string,
+  quantity: number,
+  priceUsd: number,
+  buyerNote: string | null
+): { ok: boolean; reason?: string } {
+  if (quantity <= 0) return { ok: false, reason: "Cantidad inválida." };
+
+  const entry = getCollectionEntry(collectionEntryId);
+  if (!entry) return { ok: false, reason: "No se encontró la carta." };
+
+  const allocations = getAllocations();
+  const alloc = allocations.find(
+    (a) => a.containerId === binderId && a.collectionEntryId === collectionEntryId
+  );
+  if (!alloc || alloc.quantity < quantity) {
+    return { ok: false, reason: "No tienes esa cantidad asignada a este binder." };
+  }
+
+  // baja (o borra) la asignación del binder
+  const remainingAlloc = alloc.quantity - quantity;
+  saveAllocations(
+    remainingAlloc > 0
+      ? allocations.map((a) => (a.id === alloc.id ? { ...a, quantity: remainingAlloc } : a))
+      : allocations.filter((a) => a.id !== alloc.id)
+  );
+
+  // baja (o borra) la entrada de la colección
+  const remainingQty = entry.quantity - quantity;
+  if (remainingQty > 0) {
+    updateCollectionEntry(collectionEntryId, { quantity: remainingQty });
+  } else {
+    removeCollectionEntry(collectionEntryId);
+  }
+
+  saveSales([
+    {
+      id: generateId(),
+      cardId: entry.cardId,
+      cardName: entry.cardName,
+      setName: entry.setName,
+      number: entry.number,
+      imageUrl: entry.imageUrl,
+      quantity,
+      priceUsd,
+      buyerNote,
+      soldAt: new Date().toISOString(),
+    },
+    ...getSales(),
+  ]);
+
+  return { ok: true };
+}
+
+// ---------------------------------------------------------------------------
+// "Usada en otro mazo/binder": cuando una carta que necesitas en un mazo ya
+// la tienes, pero está comprometida en otro binder/mazo (no libre), en vez
+// de registrarla como "falta comprar" se deja un vínculo — aparece marcada
+// como "usada en <el otro>" con la opción "Mover aquí". Al moverla, el
+// espacio en el otro mazo/binder NO se borra: se convierte en el vínculo
+// recíproco (ahora ESE lado la pide de vuelta, con su propio "Mover aquí"),
+// así siempre se puede regresar sin perder el lugar.
+// ---------------------------------------------------------------------------
+
+export interface UsedElsewhereLink {
+  id: string;
+  requestingContainerId: string; // el mazo/binder que la necesita (donde se ve "usada")
+  holdingContainerId: string; // el mazo/binder que la tiene físicamente ahora
+  collectionEntryId: string;
+  quantity: number;
+  createdAt: string;
+}
+
+const USED_LINKS_KEY = "pokedex-tcg:usedlinks";
+
+export function getUsedLinks(): UsedElsewhereLink[] {
+  return readJson<UsedElsewhereLink[]>(USED_LINKS_KEY, []);
+}
+
+function saveUsedLinks(links: UsedElsewhereLink[]) {
+  writeJson(USED_LINKS_KEY, links);
+}
+
+export function getUsedLinksRequestedBy(containerId: string): UsedElsewhereLink[] {
+  return getUsedLinks().filter((l) => l.requestingContainerId === containerId);
+}
+
+export function getUsedLinksHeldBy(containerId: string): UsedElsewhereLink[] {
+  return getUsedLinks().filter((l) => l.holdingContainerId === containerId);
+}
+
+export function createUsedElsewhereLink(
+  requestingContainerId: string,
+  holdingContainerId: string,
+  collectionEntryId: string,
+  quantity: number
+): UsedElsewhereLink {
+  const link: UsedElsewhereLink = {
+    id: generateId(),
+    requestingContainerId,
+    holdingContainerId,
+    collectionEntryId,
+    quantity,
+    createdAt: new Date().toISOString(),
+  };
+  saveUsedLinks([link, ...getUsedLinks()]);
+  return link;
+}
+
+// Quita el vínculo sin mover nada (por si ya no la necesitas ahí).
+export function removeUsedElsewhereLink(linkId: string) {
+  saveUsedLinks(getUsedLinks().filter((l) => l.id !== linkId));
+}
+
+// "Mover aquí": mueve la asignación física de donde está a donde se pidió,
+// y deja el vínculo recíproco en el lado que la tenía, para poder regresarla.
+export function fulfillUsedElsewhereLink(
+  linkId: string
+): { ok: boolean; reason?: string } {
+  const link = getUsedLinks().find((l) => l.id === linkId);
+  if (!link) return { ok: false, reason: "No se encontró la referencia." };
+
+  const allocations = getAllocations();
+  const source = allocations.find(
+    (a) =>
+      a.containerId === link.holdingContainerId && a.collectionEntryId === link.collectionEntryId
+  );
+  if (!source || source.quantity < link.quantity) {
+    saveUsedLinks(getUsedLinks().filter((l) => l.id !== linkId));
+    return { ok: false, reason: "Esa carta ya no está disponible ahí — se quitó la referencia." };
+  }
+
+  const remaining = source.quantity - link.quantity;
+  let next = remaining > 0
+    ? allocations.map((a) => (a.id === source.id ? { ...a, quantity: remaining } : a))
+    : allocations.filter((a) => a.id !== source.id);
+
+  const destExisting = next.find(
+    (a) =>
+      a.containerId === link.requestingContainerId && a.collectionEntryId === link.collectionEntryId
+  );
+  if (destExisting) {
+    next = next.map((a) =>
+      a.id === destExisting.id ? { ...a, quantity: a.quantity + link.quantity } : a
+    );
+  } else {
+    next.push({
+      id: generateId(),
+      containerId: link.requestingContainerId,
+      collectionEntryId: link.collectionEntryId,
+      quantity: link.quantity,
+    });
+  }
+  saveAllocations(next);
+
+  // borra este vínculo y crea el recíproco: ahora el que la tenía la pide de vuelta
+  saveUsedLinks(getUsedLinks().filter((l) => l.id !== linkId));
+  createUsedElsewhereLink(
+    link.holdingContainerId,
+    link.requestingContainerId,
+    link.collectionEntryId,
+    link.quantity
+  );
+
+  return { ok: true };
 }

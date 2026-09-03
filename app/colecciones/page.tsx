@@ -45,6 +45,7 @@ export default function ColeccionesPage() {
       name,
       image: { kind: "icon", icon: creating === "deck" ? "deck" : "binder" },
       workMode: creating === "deck" ? newWorkMode : false,
+      utilityForDecks: false,
     });
     setCreating(null);
     load();
@@ -208,6 +209,11 @@ function ContainerTile({
       {container.type === "deck" && container.workMode && (
         <span className="text-[10px] text-holo-cyan w-fit px-1.5 py-0.5 rounded bg-holo-cyan/10 border border-holo-cyan/30">
           modo trabajo
+        </span>
+      )}
+      {container.type === "binder" && container.utilityForDecks && (
+        <span className="text-[10px] text-grass w-fit px-1.5 py-0.5 rounded bg-grass/10 border border-grass/30">
+          disponible para mazos
         </span>
       )}
       {missingUsd > 0 && (

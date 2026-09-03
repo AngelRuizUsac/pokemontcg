@@ -7,6 +7,7 @@ import {
   updateContainer,
   removeContainer,
   releaseContainerAllocations,
+  releaseDeckToWorkSlots,
   getAllocationsForContainer,
   getWorkSlotsForDeck,
   getCollectionEntry,
@@ -20,8 +21,18 @@ import {
   getSettings,
   isEntryBulk,
   entryUnitValueUsd,
+  getUsedLinksRequestedBy,
+  fulfillUsedElsewhereLink,
+  removeUsedElsewhereLink,
 } from "@/lib/storage";
-import type { Container, Allocation, WorkSlot, CollectionEntry, AppSettings } from "@/lib/storage";
+import type {
+  Container,
+  Allocation,
+  WorkSlot,
+  CollectionEntry,
+  AppSettings,
+  UsedElsewhereLink,
+} from "@/lib/storage";
 import { deckGroupKey } from "@/lib/reprints";
 import { formatGtq, formatUsd, usdToGtq, DEFAULT_EXCHANGE_RATE } from "@/lib/currency";
 import { CARD_TYPE_OPTIONS, matchesCardTypeFilter } from "@/lib/cardTypeFilter";
@@ -31,6 +42,7 @@ import AddCardDialog from "@/components/AddCardDialog";
 import MoveDialog from "@/components/MoveDialog";
 import ExportImportDialog from "@/components/ExportImportDialog";
 import ReplaceWorkSlotDialog from "@/components/ReplaceWorkSlotDialog";
+import SellDialog from "@/components/SellDialog";
 import CardImage from "@/components/CardImage";
 import DeckViewGrid from "@/components/DeckViewGrid";
 import DeckLegalityPanel from "@/components/DeckLegalityPanel";
@@ -63,12 +75,16 @@ export default function ColeccionDetailPage() {
   const [container, setContainer] = useState<Container | null>(null);
   const [rows, setRows] = useState<Row[]>([]);
   const [workSlots, setWorkSlots] = useState<WorkSlot[]>([]);
+  const [usedLinks, setUsedLinks] = useState<UsedElsewhereLink[]>([]);
   const [exchangeRate, setExchangeRate] = useState(DEFAULT_EXCHANGE_RATE);
   const [showAdd, setShowAdd] = useState(false);
   const [showImagePicker, setShowImagePicker] = useState(false);
   const [showExportImport, setShowExportImport] = useState(false);
   const [typeFilter, setTypeFilter] = useState("");
+  const [searchTerm, setSearchTerm] = useState("");
+  const [rarityFilter, setRarityFilter] = useState("");
   const [replaceTarget, setReplaceTarget] = useState<WorkSlot | null>(null);
+  const [sellTarget, setSellTarget] = useState<Row | null>(null);
   const [moveTarget, setMoveTarget] = useState<
     | { kind: "allocation"; id: string; currentContainerId: string; maxQuantity: number }
     | { kind: "workslot"; id: string; currentContainerId: string; maxQuantity: number }
@@ -95,6 +111,7 @@ export default function ColeccionDetailPage() {
       .filter((r): r is Row => r !== null);
     setRows(built);
     setWorkSlots(getWorkSlotsForDeck(containerId));
+    setUsedLinks(getUsedLinksRequestedBy(containerId));
     setExchangeRate(getSettings().exchangeRate);
   }, [containerId]);
 
@@ -159,11 +176,23 @@ export default function ColeccionDetailPage() {
       ? { ...legality, regulationViolations: refinedViolations }
       : legality;
 
-  const visibleRows = rows.filter((r) =>
-    matchesCardTypeFilter(typeFilter, r.entry.category, r.entry.trainerType, r.entry.energyType)
+  const term = searchTerm.trim().toLowerCase();
+  const rarities = Array.from(
+    new Set([
+      ...rows.map((r) => r.entry.rarity).filter((r): r is string => !!r),
+    ])
+  ).sort();
+
+  const visibleRows = rows.filter(
+    (r) =>
+      matchesCardTypeFilter(typeFilter, r.entry.category, r.entry.trainerType, r.entry.energyType) &&
+      (!term || r.entry.cardName.toLowerCase().includes(term)) &&
+      (!rarityFilter || r.entry.rarity === rarityFilter)
   );
-  const visibleWorkSlots = workSlots.filter((w) =>
-    matchesCardTypeFilter(typeFilter, w.category, w.trainerType, w.energyType)
+  const visibleWorkSlots = workSlots.filter(
+    (w) =>
+      matchesCardTypeFilter(typeFilter, w.category, w.trainerType, w.energyType) &&
+      (!term || w.cardName.toLowerCase().includes(term))
   );
   // Las energías (genéricas o no) se muestran junto con las cartas del mazo
   // y cuentan en el total de cartas; solo Pokémon/Trainer que faltan van en
@@ -210,11 +239,27 @@ export default function ColeccionDetailPage() {
       alert("Este binder/mazo no tiene cartas asignadas.");
       return;
     }
+    const totalQty = rows.reduce((s, r) => s + r.alloc.quantity, 0);
+
+    if (isDeck) {
+      if (
+        !confirm(
+          `¿Limpiar "${container!.name}"? Las ${totalQty} copias asignadas quedarán disponibles para usarse en otro mazo, y cada carta pasará a "cartas que faltan" (modo trabajo) para que el mazo conserve su lista completa.`
+        )
+      )
+        return;
+      const { released } = releaseDeckToWorkSlots(container!.id);
+      setRefreshMsg(
+        `Se liberaron ${released} copia(s) — ahora están disponibles, y el mazo las tiene marcadas como "cartas que faltan".`
+      );
+      load();
+      setTimeout(() => setRefreshMsg(null), 5000);
+      return;
+    }
+
     if (
       !confirm(
-        `¿Liberar las ${rows.reduce((s, r) => s + r.alloc.quantity, 0)} copias asignadas a "${
-          container!.name
-        }"? Volverán a estar disponibles sin asignar — "${container!.name}" seguirá existiendo, solo quedará vacío.`
+        `¿Liberar las ${totalQty} copias asignadas a "${container!.name}"? Volverán a estar disponibles sin asignar — "${container!.name}" seguirá existiendo, solo quedará vacío.`
       )
     )
       return;
@@ -312,7 +357,10 @@ export default function ColeccionDetailPage() {
               (isDeck ? workSlots.filter((w) => w.category === "Energy").reduce((s, w) => s + w.quantity, 0) : 0)}{" "}
             cartas
             {isDeck &&
-              ` · ${workSlots.filter((w) => w.category !== "Energy").reduce((s, w) => s + w.quantity, 0)} faltantes`}
+              ` · ${workSlots.filter((w) => w.category !== "Energy").reduce((s, w) => s + w.quantity, 0)} faltantes` +
+                (usedLinks.length > 0
+                  ? ` · ${usedLinks.reduce((s, l) => s + l.quantity, 0)} usadas en otro lado`
+                  : "")}
           </p>
 
           {isDeck && (
@@ -327,6 +375,20 @@ export default function ColeccionDetailPage() {
                 className="accent-gold"
               />
               Modo trabajo (permite agregar cartas que no tengo)
+            </label>
+          )}
+          {!isDeck && (
+            <label className="flex items-center gap-2 mt-2 text-xs text-ink-400">
+              <input
+                type="checkbox"
+                checked={container.utilityForDecks}
+                onChange={(e) => {
+                  updateContainer(container.id, { utilityForDecks: e.target.checked });
+                  load();
+                }}
+                className="accent-gold"
+              />
+              Cartas de utilidad (se pueden usar en mazos automáticamente)
             </label>
           )}
         </div>
@@ -401,9 +463,13 @@ export default function ColeccionDetailPage() {
             <button
               onClick={releaseCards}
               className="text-xs text-holo-cyan hover:underline"
-              title="Quita todas las cartas asignadas sin borrar este binder/mazo"
+              title={
+                isDeck
+                  ? "Libera las cartas asignadas (quedan disponibles) y las deja como 'cartas que faltan' para no perder la lista del mazo"
+                  : "Quita todas las cartas asignadas sin borrar este binder"
+              }
             >
-              Liberar cartas
+              {isDeck ? "Limpiar mazo" : "Liberar cartas"}
             </button>
             <button onClick={deleteContainer} className="text-xs text-danger/80 hover:text-danger">
               Eliminar
@@ -450,23 +516,14 @@ export default function ColeccionDetailPage() {
 
       {isDeck && <DeckCompositionPanel rows={rows} workSlots={workSlots} />}
 
-      {viewMode === "view" && (
-        <div className="mt-6">
-          <DeckViewGrid
-            rows={rows}
-            energySlots={energySlots}
-            missingSlots={missingSlots}
-            exchangeRate={exchangeRate}
-            settings={fullSettings}
-            isBinder={!isDeck}
-          />
-        </div>
-      )}
-
-      {viewMode === "build" && (
-      <>
-      <div className="mt-6 flex items-center gap-2">
-        <label className="text-xs text-ink-400">Filtrar por tipo:</label>
+      <div className="mt-6 flex flex-wrap items-center gap-2">
+        <input
+          value={searchTerm}
+          onChange={(e) => setSearchTerm(e.target.value)}
+          placeholder="Buscar por nombre en este binder/mazo…"
+          className="bg-ink-900 border border-ink-700 rounded-full px-3 py-1.5 text-xs min-w-[200px] outline-none focus:border-gold/60"
+        />
+        <label className="text-xs text-ink-400">Tipo:</label>
         <select
           value={typeFilter}
           onChange={(e) => setTypeFilter(e.target.value)}
@@ -478,8 +535,52 @@ export default function ColeccionDetailPage() {
             </option>
           ))}
         </select>
+        {rarities.length > 0 && (
+          <>
+            <label className="text-xs text-ink-400">Rareza:</label>
+            <select
+              value={rarityFilter}
+              onChange={(e) => setRarityFilter(e.target.value)}
+              className="bg-ink-900 border border-ink-700 rounded px-2 py-1.5 text-xs"
+            >
+              <option value="">Todas</option>
+              {rarities.map((r) => (
+                <option key={r} value={r}>
+                  {r}
+                </option>
+              ))}
+            </select>
+          </>
+        )}
+        {(searchTerm || typeFilter || rarityFilter) && (
+          <button
+            onClick={() => {
+              setSearchTerm("");
+              setTypeFilter("");
+              setRarityFilter("");
+            }}
+            className="text-xs text-ink-400 hover:text-ink-50"
+          >
+            Limpiar filtros
+          </button>
+        )}
       </div>
 
+      {viewMode === "view" && (
+        <div className="mt-6">
+          <DeckViewGrid
+            rows={visibleRows}
+            energySlots={energySlots}
+            missingSlots={missingSlots}
+            exchangeRate={exchangeRate}
+            settings={fullSettings}
+            isBinder={!isDeck}
+          />
+        </div>
+      )}
+
+      {viewMode === "build" && (
+      <>
       {/* Cartas en el mazo/binder (las energías van aquí, cuentan como cartas del mazo) */}
       <div className="mt-6">
         <h2 className="font-display font-semibold text-lg">
@@ -577,6 +678,7 @@ export default function ColeccionDetailPage() {
                   row={row}
                   exchangeRate={exchangeRate}
                   settings={fullSettings}
+                  isBinder
                   onAdjust={(d) => adjustAllocQty(row, d)}
                   onMove={() =>
                     setMoveTarget({
@@ -586,6 +688,7 @@ export default function ColeccionDetailPage() {
                       maxQuantity: row.alloc.quantity,
                     })
                   }
+                  onSell={() => setSellTarget(row)}
                   onRemove={() => {
                     removeAllocation(row.alloc.id);
                     load();
@@ -595,6 +698,34 @@ export default function ColeccionDetailPage() {
           </div>
         )}
       </div>
+
+      {/* Cartas que ya tienes, pero están en otro binder/mazo */}
+      {isDeck && usedLinks.length > 0 && (
+        <div className="mt-8">
+          <h2 className="font-display font-semibold text-lg">Usadas en otro mazo/binder</h2>
+          <p className="text-ink-400 text-xs mt-1">
+            Ya las tienes, pero están asignadas a otro lado. "Mover aquí" las trae sin borrar su
+            lugar allá — queda lista para devolverlas después.
+          </p>
+          <div className="mt-4 flex flex-col gap-2">
+            {usedLinks.map((link) => (
+              <UsedElsewhereRow
+                key={link.id}
+                link={link}
+                onMoveHere={() => {
+                  const result = fulfillUsedElsewhereLink(link.id);
+                  if (!result.ok && result.reason) alert(result.reason);
+                  load();
+                }}
+                onRemove={() => {
+                  removeUsedElsewhereLink(link.id);
+                  load();
+                }}
+              />
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Cartas que faltan (Pokémon/Trainer que aún no tienes) */}
       {isDeck && missingSlots.length > 0 && (
@@ -681,6 +812,19 @@ export default function ColeccionDetailPage() {
           }}
         />
       )}
+
+      {sellTarget && (
+        <SellDialog
+          entry={sellTarget.entry}
+          alloc={sellTarget.alloc}
+          binderId={container.id}
+          onClose={() => setSellTarget(null)}
+          onSold={() => {
+            setSellTarget(null);
+            load();
+          }}
+        />
+      )}
     </div>
   );
 }
@@ -689,16 +833,20 @@ function AllocationRow({
   row,
   exchangeRate,
   settings,
+  isBinder,
   onAdjust,
   onMove,
   onRemove,
+  onSell,
 }: {
   row: Row;
   exchangeRate: number;
   settings: AppSettings;
+  isBinder?: boolean;
   onAdjust: (delta: number) => void;
   onMove: () => void;
   onRemove: () => void;
+  onSell?: () => void;
 }) {
   const { entry, alloc } = row;
   const [showDetail, setShowDetail] = useState(false);
@@ -746,6 +894,11 @@ function AllocationRow({
           +
         </button>
       </div>
+      {isBinder && onSell && (
+        <button onClick={onSell} className="text-xs text-grass hover:underline">
+          Vender
+        </button>
+      )}
       <button onClick={onMove} className="text-xs text-holo-cyan hover:underline">
         Mover
       </button>
@@ -848,6 +1001,45 @@ function WorkSlotRow({
           onClose={() => setShowDetail(false)}
         />
       )}
+    </div>
+  );
+}
+
+function UsedElsewhereRow({
+  link,
+  onMoveHere,
+  onRemove,
+}: {
+  link: UsedElsewhereLink;
+  onMoveHere: () => void;
+  onRemove: () => void;
+}) {
+  const entry = getCollectionEntry(link.collectionEntryId);
+  const holder = getContainer(link.holdingContainerId);
+  if (!entry) return null;
+
+  return (
+    <div className="flex items-center gap-3 bg-ink-800 border border-dashed border-holo-cyan/40 rounded-lg p-2.5">
+      <div className="relative w-11 aspect-[5/7] rounded overflow-hidden bg-ink-900 shrink-0">
+        <CardImage src={entry.imageUrl} alt={entry.cardName} className="object-contain" />
+      </div>
+      <div className="flex-1 min-w-0">
+        <p className="text-sm font-medium truncate">
+          {entry.cardName} <span className="text-ink-400 font-mono">x{link.quantity}</span>
+        </p>
+        <p className="text-holo-cyan text-xs">
+          usada en {holder ? holder.name : "otro binder/mazo"}
+        </p>
+      </div>
+      <button
+        onClick={onMoveHere}
+        className="text-xs px-3 py-1.5 rounded-full bg-holo-cyan/10 text-holo-cyan border border-holo-cyan/30 hover:bg-holo-cyan/20"
+      >
+        Mover aquí
+      </button>
+      <button onClick={onRemove} className="text-xs text-danger/80 hover:text-danger">
+        Quitar
+      </button>
     </div>
   );
 }

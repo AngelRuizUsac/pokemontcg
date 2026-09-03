@@ -3,7 +3,7 @@
 import { useEffect, useState, useCallback } from "react";
 import Link from "next/link";
 import CollectionCard from "@/components/CollectionCard";
-import { getCollection, getSettings, isEntryBulk, updateCollectionEntry, mergeDuplicateCollectionEntries, entryValueUsd } from "@/lib/storage";
+import { getCollection, getSettings, isEntryBulk, updateCollectionEntry, mergeDuplicateCollectionEntries, entryValueUsd, getAvailableQuantity } from "@/lib/storage";
 import type { CollectionEntry, AppSettings } from "@/lib/storage";
 import { DEFAULT_EXCHANGE_RATE, formatGtq, formatUsd, usdToGtq } from "@/lib/currency";
 import { CARD_TYPE_OPTIONS, matchesCardTypeFilter } from "@/lib/cardTypeFilter";
@@ -49,6 +49,8 @@ export default function Home() {
   const [search, setSearch] = useState("");
   const [typeFilter, setTypeFilter] = useState("");
   const [showBulk, setShowBulk] = useState(true);
+  const [showFree, setShowFree] = useState(true);
+  const [showAssigned, setShowAssigned] = useState(true);
   const [sort, setSort] = useState<SortOption>("name");
   const [busyAction, setBusyAction] = useState<"prices" | "merge" | null>(null);
   const [actionMsg, setActionMsg] = useState<string | null>(null);
@@ -118,6 +120,9 @@ export default function Home() {
       if (term && !e.cardName.toLowerCase().includes(term)) return false;
       if (!matchesCardTypeFilter(typeFilter, e.category, e.trainerType, e.energyType)) return false;
       if (!showBulk && isEntryBulk(e, settings)) return false;
+      const isFree = getAvailableQuantity(e.id) > 0;
+      if (isFree && !showFree) return false;
+      if (!isFree && !showAssigned) return false;
       return true;
     }),
     sort,
@@ -228,6 +233,24 @@ export default function Home() {
                 Mostrar bulk ({bulkCount})
               </label>
             )}
+            <label className="flex items-center gap-1.5 text-xs text-ink-400">
+              <input
+                type="checkbox"
+                checked={showFree}
+                onChange={(e) => setShowFree(e.target.checked)}
+                className="accent-gold"
+              />
+              Libres
+            </label>
+            <label className="flex items-center gap-1.5 text-xs text-ink-400">
+              <input
+                type="checkbox"
+                checked={showAssigned}
+                onChange={(e) => setShowAssigned(e.target.checked)}
+                className="accent-gold"
+              />
+              Asignadas
+            </label>
           </div>
 
           {visible.length === 0 ? (

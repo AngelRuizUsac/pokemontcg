@@ -142,6 +142,44 @@ lib/
   types.ts, currency.ts, rarity.ts     → tipos de la API, conversión de moneda, color por rareza
 ```
 
+## Novedades v2.13.2
+
+- **Arreglado: energías básicas al importar**. Antes, importar "1 Grass Energy MEE 1" (etc.) trataba
+  de emparejarlo con una impresión puntual, a veces con resultados raros. Ahora, cualquier energía
+  básica (Grass, Fire, Water, Lightning, Psychic, Fighting, Darkness, Metal) se registra directo como
+  energía genérica sin importar la expansión que traía la línea — no cuenta como "falta comprar".
+  Las energías especiales (todo lo que no sea una de esas 8) sí siguen el proceso normal, como
+  cualquier otra carta puntual.
+- **Nueva categoría: "Usadas en otro mazo/binder"**. Al importar (o si más adelante se agrega en
+  otros flujos), si una carta que necesitas ya la tienes pero está asignada a otro binder/mazo, ya
+  no se registra como "falta comprar" — aparece en esta nueva sección con la opción **"Mover
+  aquí"**. Al moverla, el espacio en el otro binder/mazo no desaparece: se convierte en el mismo
+  tipo de referencia allá ("usada en [este mazo]", con su propio "Mover aquí"), así siempre puedes
+  regresarla sin perder el lugar en ninguno de los dos lados.
+
+## Novedades v2.13.1
+
+- **Arreglado "Liberar cartas" en mazos**: ahora se llama **"Limpiar mazo"** y, en vez de solo
+  quitar las cartas sin dejar rastro, cada una pasa a "cartas que faltan" (modo trabajo) con la
+  misma cantidad que tenía — las copias físicas quedan libres para usarse en otro mazo, pero el
+  mazo no pierde su lista/receta, y puedes volver a llenarlo después con "Ya la conseguí" o
+  "Actualizar" en cuanto tengas las cartas de nuevo. En binders el botón sigue funcionando como
+  antes (los binders no tienen "cartas que faltan").
+
+## Novedades v2.13
+
+- **Filtro libres/asignadas** en Mi colección: dos casillas ("Libres" y "Asignadas") para ver solo
+  las cartas que todavía tienes sin comprometer, solo las que ya están en algún binder/mazo, o
+  ambas.
+- **Binders "de utilidad" para mazos**: nueva casilla en cada binder — "Cartas de utilidad (se
+  pueden usar en mazos automáticamente)". Si la activas, esas cartas siguen contando como
+  disponibles: al agregarlas a un mazo (o al usar "Actualizar" en cartas faltantes), la copia se
+  mueve sola del binder al mazo — no hace falta liberarla a mano primero. Los binders normales (sin
+  esta casilla) siguen funcionando como reserva firme, igual que antes.
+- **Buscador y filtro por rareza dentro de cada binder/mazo**: además del filtro por tipo que ya
+  existía, ahora se puede buscar por nombre y filtrar por rareza directamente dentro de un
+  binder/mazo — funciona tanto en la vista como en construcción.
+
 ## Novedades v2.12.1
 
 - **Resistencia a caídas de TCGdex**: si el dominio principal (`api.tcgdex.net`) falla, la app ahora

@@ -8,6 +8,7 @@ import {
   updateCollectionEntry,
   removeCollectionEntry,
   getAllocatedQuantity,
+  getAvailableQuantity,
   getContainersForEntry,
   isEntryBulk,
   entryUnitValueUsd,
@@ -38,7 +39,7 @@ export default function CollectionCard({
   );
 
   const allocated = getAllocatedQuantity(entry.id);
-  const available = entry.quantity - allocated;
+  const available = getAvailableQuantity(entry.id);
   const bulk = isEntryBulk(entry, settings);
   const locations = showLocations ? getContainersForEntry(entry.id) : [];
 
