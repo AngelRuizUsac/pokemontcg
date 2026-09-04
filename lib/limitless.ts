@@ -11,6 +11,8 @@ export interface LimitlessTournament {
   name: string;
   date: string;
   players: number;
+  source?: "official" | "online";
+  standings?: LimitlessStanding[];
 }
 
 export interface LimitlessStanding {
@@ -46,7 +48,7 @@ async function limitlessFetch<T>(path: string): Promise<T> {
   }
 }
 
-export function getLimitlessTournaments(page = 1, limit = 30) {
+export function getLimitlessTournaments(page = 1, limit = 50) {
   return limitlessFetch<LimitlessTournament[]>(
     `/tournaments?game=PTCG&format=STANDARD&limit=${limit}&page=${page}`
   );
@@ -95,5 +97,6 @@ export function normalizeLimitlessDecklist(decklist: unknown): DeckListLine[] {
 }
 
 export function limitlessTournamentUrl(id: string) {
+  if (id.startsWith("official:")) return `https://limitlesstcg.com/tournaments/${encodeURIComponent(id.slice(9))}`;
   return `https://play.limitlesstcg.com/tournament/${encodeURIComponent(id)}/standings`;
 }

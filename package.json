@@ -1,9 +1,11 @@
 {
   "name": "pokedex-tcg",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "private": true,
   "scripts": {
     "dev": "next dev",
+    "sync:limitless": "node scripts/sync-limitless-official.mjs",
+    "prebuild": "npm run sync:limitless",
     "build": "next build",
     "start": "next start",
     "lint": "next lint"
