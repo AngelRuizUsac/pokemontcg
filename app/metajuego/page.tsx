@@ -43,6 +43,31 @@ type BrowserTab = "official" | "online" | "archetypes";
 type TournamentSort = "date-desc" | "date-asc";
 type ListSort = "placing-asc" | "placing-desc" | "date-desc";
 type StandingWithTournament = LimitlessStanding & { _tournament?: LimitlessTournament };
+type RawDeckCard = { name?: string; set?: string; number?: string; count?: number };
+
+interface ArchetypeSummary {
+  name: string;
+  rows: StandingWithTournament[];
+  points: number;
+  rank: number;
+  share: number;
+  mainCard?: RawDeckCard;
+}
+
+interface LimitlessArchetypeRank { rank: number; name: string; annotation?: string; points: number; share: number }
+
+function archetypeKey(value: string) {
+  return normalizeCardName(value).replace(/\b(ex|mega)\b/g, "").trim();
+}
+
+function representativeCard(row?: LimitlessStanding): RawDeckCard | undefined {
+  if (!row) return undefined;
+  const pokemon = ((row.decklist as { pokemon?: RawDeckCard[] } | null)?.pokemon ?? []);
+  const archetype = normalizeCardName(row.deck?.name ?? "").replace(/\b(ex|mega)\b/g, "").trim();
+  return pokemon.find((card) => archetype.includes(normalizeCardName(card.name ?? "").replace(/\b(ex|mega)\b/g, "").trim()))
+    ?? pokemon.find((card) => /\bex\b/i.test(card.name ?? ""))
+    ?? pokemon[0];
+}
 
 function matchesEntry(item: MatchedDeckLine, entry: CollectionEntry) {
   const { card } = item;
@@ -54,9 +79,12 @@ function matchesEntry(item: MatchedDeckLine, entry: CollectionEntry) {
 export default function MetajuegoPage() {
   const [tournaments, setTournaments] = useState<LimitlessTournament[]>([]);
   const [officialTournaments, setOfficialTournaments] = useState<LimitlessTournament[]>([]);
+  const [officialArchetypes, setOfficialArchetypes] = useState<LimitlessArchetypeRank[]>([]);
   const [selectedTournament, setSelectedTournament] = useState<LimitlessTournament | null>(null);
   const [standings, setStandings] = useState<LimitlessStanding[]>([]);
   const [query, setQuery] = useState("");
+  const [eventQuery, setEventQuery] = useState("");
+  const [archetypeImages, setArchetypeImages] = useState<Record<string, string>>({});
   const [selected, setSelected] = useState<SelectedList | null>(null);
   const [preview, setPreview] = useState<PreviewCard[]>([]);
   const [unmatched, setUnmatched] = useState<{ label: string; quantity: number }[]>([]);
@@ -70,11 +98,9 @@ export default function MetajuegoPage() {
     const basePath = process.env.NEXT_PUBLIC_BASE_PATH ?? "";
     Promise.all([
       getLimitlessTournaments(),
-      fetch(`${basePath}/data/limitless-official.json`).then((response) => response.ok ? response.json() : Promise.reject()).then((data) =>
-        (data.tournaments ?? []).map((item: LimitlessTournament) => ({ ...item, id: `official:${item.id}`, source: "official" as const }))
-      ).catch(() => []),
+      fetch(`${basePath}/data/limitless-official.json`).then((response) => response.ok ? response.json() : Promise.reject()).catch(() => ({ tournaments: [], archetypes: [] })),
     ])
-      .then(([online, official]) => { setTournaments(online.map((item) => ({ ...item, source: "online" }))); setOfficialTournaments(official); })
+      .then(([online, official]) => { setTournaments(online.map((item) => ({ ...item, source: "online" }))); setOfficialTournaments((official.tournaments ?? []).map((item: LimitlessTournament) => ({ ...item, id: `official:${item.id}`, source: "official" as const }))); setOfficialArchetypes(official.archetypes ?? []); })
       .catch(() => setMessage("No se pudieron consultar los torneos de Limitless."))
       .finally(() => setBusy(null));
   }, []);
@@ -236,6 +262,7 @@ export default function MetajuegoPage() {
   );
 
   const visibleTournaments = [...(tab === "official" ? officialTournaments : tournaments)]
+    .filter((item) => `${item.name} ${item.format}`.toLowerCase().includes(eventQuery.trim().toLowerCase()))
     .sort((left, right) => tournamentSort === "date-desc"
       ? Date.parse(right.date) - Date.parse(left.date)
       : Date.parse(left.date) - Date.parse(right.date));
@@ -256,11 +283,58 @@ export default function MetajuegoPage() {
     return groups;
   }, new Map<string, LimitlessStanding[]>()).entries()).sort(([left], [right]) => left.localeCompare(right));
 
+  const archetypeSummaries = useMemo<ArchetypeSummary[]>(() => {
+    const groups = new Map<string, StandingWithTournament[]>();
+    for (const tournament of officialTournaments) {
+      for (const standing of tournament.standings ?? []) {
+        if (!standing.decklist) continue;
+        const row = standing as StandingWithTournament;
+        row._tournament = tournament;
+        const name = standing.deck?.name ?? "Arquetipo sin identificar";
+        groups.set(name, [...(groups.get(name) ?? []), row]);
+      }
+    }
+    const used = new Set<string>();
+    const ranked = officialArchetypes.map((ranking) => {
+      const key = archetypeKey(ranking.name);
+      const matching = Array.from(groups.entries()).filter(([name]) => archetypeKey(name) === key || archetypeKey(name).includes(key) || key.includes(archetypeKey(name)));
+      const rows = matching.flatMap(([, groupRows]) => groupRows);
+      matching.forEach(([name]) => used.add(name));
+      return { name: `${ranking.name}${ranking.annotation ? ` ${ranking.annotation}` : ""}`, rows, points: ranking.points, rank: ranking.rank, share: ranking.share, mainCard: representativeCard(rows[0]) };
+    });
+    const unranked = Array.from(groups, ([name, rows]) => ({ name, rows, points: 0, rank: 999, share: 0, mainCard: representativeCard(rows[0]) })).filter((summary) => !used.has(summary.name));
+    return [...ranked, ...unranked].sort((left, right) => left.rank - right.rank || right.rows.length - left.rows.length || left.name.localeCompare(right.name));
+  }, [officialArchetypes, officialTournaments]);
+
+  useEffect(() => {
+    const cards = archetypeSummaries.slice(0, 30).flatMap((summary) => summary.mainCard ? [{
+      section: "Pokemon" as const,
+      name: summary.mainCard.name ?? "",
+      setCode: summary.mainCard.set ?? "",
+      number: summary.mainCard.number ?? "",
+      quantity: 1,
+    }] : []);
+    if (!cards.length) return;
+    let active = true;
+    matchDeckListLines(cards).then((result) => {
+      if (!active) return;
+      setArchetypeImages(Object.fromEntries(result.matched.map((item) => [normalizeCardName(item.line.name), cardImageUrl(item.card.image, "low", "webp")])));
+    }).catch(() => {});
+    return () => { active = false; };
+  }, [archetypeSummaries]);
+
   function changeTab(next: BrowserTab) {
     setTab(next);
     setSelected(null);
     setSelectedTournament(null);
     setStandings([]);
+    setMessage(null);
+  }
+
+  function openArchetype(summary: ArchetypeSummary) {
+    setQuery(summary.name);
+    setSelectedTournament(null);
+    setStandings(summary.rows);
     setMessage(null);
   }
 
@@ -288,6 +362,7 @@ export default function MetajuegoPage() {
         <div><h2 className="font-display text-lg font-semibold">{tab === "official" ? "Torneos oficiales" : "Torneos online de Limitless"}</h2>{tab === "official" && <p className="mt-1 text-xs text-ink-400">Worlds, Regionales, Internacionales, Special Events y Championships.</p>}</div>
         <select value={tournamentSort} onChange={(event) => setTournamentSort(event.target.value as TournamentSort)} className="rounded border border-ink-700 bg-ink-800 px-2 py-1.5 text-xs"><option value="date-desc">Fecha: más recientes</option><option value="date-asc">Fecha: más antiguos</option></select>
       </div>
+      <input value={eventQuery} onChange={(event) => setEventQuery(event.target.value)} placeholder="Buscar evento por nombre o formato" className="mt-3 w-full rounded-lg border border-ink-700 bg-ink-800 px-4 py-2 text-sm" />
       {visibleTournaments.length === 0 ? <p className="mt-4 text-sm text-ink-400">No hay torneos de esta categoría en los resultados recientes.</p> : <div className="mt-3 grid gap-3 sm:grid-cols-2">{visibleTournaments.map((tournament) =>
         <button key={tournament.id} onClick={() => openTournament(tournament)} className="rounded-card border border-ink-700 bg-ink-800 p-4 text-left hover:border-gold/50">
           <p className="font-medium">{tournament.name}</p>
@@ -296,7 +371,13 @@ export default function MetajuegoPage() {
       </div>}
     </section>}
 
-    {!busy && !selected && standings.length === 0 && tab === "archetypes" && <p className="mt-8 text-sm text-ink-400">Escribe un arquetipo para buscar listas reales en los torneos recientes.</p>}
+    {!busy && !selected && standings.length === 0 && tab === "archetypes" && <section className="mt-8">
+      <div className="grid grid-cols-[3rem_4rem_minmax(0,1fr)_5rem_5rem] items-center border-b border-ink-600 px-3 py-2 text-xs text-ink-400"><span>#</span><span>Carta</span><span>Arquetipo</span><span>Puntos</span><span>Uso</span></div>
+      {archetypeSummaries.filter((summary) => summary.name.toLowerCase().includes(query.trim().toLowerCase())).map((summary, index) => {
+        const imageUrl = summary.mainCard ? archetypeImages[normalizeCardName(summary.mainCard.name ?? "")] : "";
+        return <button key={summary.name} onClick={() => openArchetype(summary)} disabled={!summary.rows.length} className="grid w-full grid-cols-[3rem_4rem_minmax(0,1fr)_5rem_5rem] items-center border-b border-ink-800 px-3 py-2 text-left hover:bg-ink-800 disabled:cursor-default disabled:opacity-60"><span className="font-mono text-gold">{summary.rank < 999 ? summary.rank : index + 1}</span><span className="relative h-14 w-10 overflow-hidden rounded bg-ink-900">{imageUrl ? <CardImage src={imageUrl} alt={summary.mainCard?.name ?? summary.name} className="object-contain" sizes="40px" /> : null}</span><span className="truncate font-medium">{summary.name}<span className="ml-2 text-xs font-normal text-ink-400">{summary.mainCard?.name}</span></span><span className="text-sm text-ink-300">{summary.points || "—"}</span><span className="text-sm text-ink-300">{summary.share ? `${summary.share.toFixed(2)}%` : "—"}</span></button>;
+      })}
+    </section>}
 
     {!busy && !selected && standings.length > 0 && <section className="mt-8">
       <div className="flex flex-wrap items-center justify-between gap-3"><h2 className="font-display text-lg font-semibold">{selectedTournament?.name ?? `Resultados para “${query}”`}</h2><div className="flex items-center gap-2"><select value={listSort} onChange={(event) => setListSort(event.target.value as ListSort)} className="rounded border border-ink-700 bg-ink-800 px-2 py-1.5 text-xs"><option value="placing-asc">Mejor posición</option><option value="placing-desc">Peor posición</option>{tab === "archetypes" && <option value="date-desc">Fecha más reciente</option>}</select><button onClick={() => { setStandings([]); setSelectedTournament(null); }} className="text-xs text-ink-400">Volver</button></div></div>
@@ -316,11 +397,11 @@ export default function MetajuegoPage() {
         <p className="mt-3 text-lg"><span className="text-gold">{totals.percentage}%</span> de la lista está en tu colección ({totals.owned}/{totals.required})</p>
         <div className="mt-3 flex gap-2"><button onClick={importSelected} className="rounded-full bg-gold px-4 py-2 text-sm font-medium text-ink-900">Importar esta lista</button><a href={limitlessTournamentUrl(selected.tournament.id)} target="_blank" rel="noreferrer" className="rounded-full border border-ink-600 px-4 py-2 text-sm">Ver torneo en Limitless</a></div>
       </div>
-      <div className="mt-4 flex flex-col gap-2">{preview.map((item, index) => {
+      <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4 lg:grid-cols-6 xl:grid-cols-8">{preview.map((item, index) => {
         const status = item.free >= item.line.quantity ? "Disponible" : item.owned >= item.line.quantity ? "En otro mazo/binder" : "Faltante";
         const color = status === "Disponible" ? "text-grass border-grass/30" : status === "En otro mazo/binder" ? "text-holo-cyan border-holo-cyan/30" : "text-danger border-danger/30";
         const imageUrl = item.card ? cardImageUrl(item.card.image, "low", "webp") : "";
-        return <div key={`${item.line.name}-${index}`} className="flex items-center gap-3 rounded-lg border border-ink-700 bg-ink-800 p-3"><div className="relative h-20 w-14 shrink-0 overflow-hidden rounded bg-ink-900">{imageUrl ? <CardImage src={imageUrl} alt={item.line.name} className="object-contain" sizes="56px" /> : <div className="flex h-full items-center justify-center px-1 text-center text-[9px] text-ink-500">Energía básica</div>}<span className="absolute right-1 top-1 rounded bg-ink-950/90 px-1 text-[10px] font-mono">x{item.line.quantity}</span></div><span className="min-w-0 flex-1"><span className="block font-medium">{item.line.name}</span><span className="block text-xs text-ink-400">{item.line.setCode} {item.line.number}</span></span><span className={`rounded-full border px-2 py-1 text-[10px] ${color}`}>{status} · tienes {item.owned}</span></div>;
+        return <div key={`${item.line.name}-${index}`} className="min-w-0 rounded border border-ink-700 bg-ink-800 p-2"><div className="relative aspect-[0.72] w-full overflow-hidden rounded-sm bg-ink-900">{imageUrl ? <CardImage src={imageUrl} alt={item.line.name} className="object-contain" sizes="(min-width:1280px) 120px, (min-width:640px) 22vw, 45vw" /> : <div className="flex h-full items-center justify-center px-1 text-center text-xs text-ink-500">Energía básica</div>}</div><p className="mt-2 truncate text-sm font-medium">{item.line.name} <span className="font-mono text-gold">×{item.line.quantity}</span></p><p className="truncate text-[10px] text-ink-400">{item.line.setCode} {item.line.number}</p><span className={`mt-1 inline-block rounded border px-1.5 py-0.5 text-[9px] ${color}`}>{status} · tienes {item.owned}</span></div>;
       })}</div>
       {unmatched.length > 0 && <div className="mt-4 rounded-lg border border-danger/30 p-3"><p className="text-sm text-danger">Sin resolver ({unmatched.length})</p>{unmatched.map((line) => <p key={line.label} className="text-xs text-ink-400">{line.label}</p>)}</div>}
     </section>}
