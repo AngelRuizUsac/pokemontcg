@@ -20,6 +20,7 @@ export interface DeckListLine {
   setCode: string;
   number: string;
   section: DeckSection;
+  imageUrl?: string;
 }
 
 const SECTION_BY_HEADER: Record<string, DeckSection> = {

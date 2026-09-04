@@ -43,6 +43,7 @@ function parseDecklists(html) {
     const toggle = block.match(/class="decklist-toggle"[^>]*>([\s\S]*?)<\/div>/)?.[1] ?? "";
     const placingMatch = decode(toggle).match(/^(\d+)(?:st|nd|rd|th)\s+(.+)$/i);
     const archetype = decode(block.match(/class="decklist-title">([\s\S]*?)(?:<a|<span|<\/div>)/)?.[1] ?? "Arquetipo sin identificar");
+    const images = new Map([...block.matchAll(/<a href="\/cards\/([^/"?]+)\/([^"?]+)"[^>]*>\s*<img class="card-picture card" src="([^"]+)"/g)].map((match) => [`${match[1]}:${match[2]}`, match[3]]));
     let section = "Pokemon";
     const decklist = { pokemon: [], trainer: [], energy: [] };
     const tokenPattern = /class="decklist-column-heading">([\s\S]*?)<\/div>|class="decklist-card"\s+data-set="([^"]*)"\s+data-number="([^"]*)"[\s\S]*?class="card-count">(\d+)<\/span>[\s\S]*?class="card-name">([\s\S]*?)<\/span>/g;
@@ -51,7 +52,7 @@ function parseDecklists(html) {
         const heading = decode(token[1]).toLowerCase();
         section = heading.includes("trainer") ? "Trainer" : heading.includes("energ") ? "Energy" : "Pokemon";
       } else {
-        const card = { set: token[2], number: token[3], count: Number(token[4]), name: decode(token[5]) };
+        const card = { set: token[2], number: token[3], count: Number(token[4]), name: decode(token[5]), imageUrl: images.get(`${token[2]}:${token[3]}`) };
         decklist[section.toLowerCase()].push(card);
       }
     }

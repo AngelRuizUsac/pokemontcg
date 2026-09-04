@@ -82,7 +82,7 @@ export function normalizeLimitlessDecklist(decklist: unknown): DeckListLine[] {
     const number = String(item.number ?? item.localId ?? item.cardNumber ?? "").trim();
     const quantity = Number(item.count ?? item.quantity ?? item.qty ?? 0);
     if (resolvedSection && name && quantity > 0) {
-      result.push({ section: resolvedSection, name, setCode, number, quantity });
+      result.push({ section: resolvedSection, name, setCode, number, quantity, imageUrl: typeof item.imageUrl === "string" ? item.imageUrl : undefined });
     }
   };
 
